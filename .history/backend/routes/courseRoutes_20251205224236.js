@@ -1,0 +1,432 @@
+// routes/courseRoutes.js
+const express = require('express');
+const router = express.Router();
+const db = require('../db');
+
+// ==================== COURSES ====================
+
+// GET /api/courses - Lấy danh sách khóa học
+router.get('/', async (req, res) => {
+  try {
+    const { status, level, search } = req.query;
+    let query = 'SELECT * FROM courses WHERE 1=1';
+    const params = [];
+    let paramCount = 1;
+
+    if (status) {
+      query += ` AND status = $${paramCount}`;
+      params.push(status);
+      paramCount++;
+    }
+
+    if (level) {
+      query += ` AND level = $${paramCount}`;
+      params.push(level);
+      paramCount++;
+    }
+
+    if (search) {
+      query += ` AND (name ILIKE $${paramCount} OR course_code ILIKE $${paramCount})`;
+      params.push(`%${search}%`);
+      paramCount++;
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const result = await db.query(query, params);
+    res.json({ success: true, courses: result.rows });
+  } catch (error) {
+    console.error('Error fetching courses:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy danh sách khóa học' });
+  }
+});
+
+// GET /api/courses/:id - Lấy chi tiết khóa học
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query('SELECT * FROM courses WHERE id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy khóa học' });
+    }
+
+    res.json({ success: true, course: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching course:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy thông tin khóa học' });
+  }
+});
+
+// POST /api/courses - Tạo khóa học mới
+router.post('/', async (req, res) => {
+  try {
+    const {
+      course_code,
+      name,
+      level,
+      short_description,
+      detailed_description,
+      duration_weeks,
+      sessions_per_week,
+      hours_per_session,
+      tuition_fee,
+      requirements,
+      objectives,
+      status = 'ACTIVE'
+    } = req.body;
+
+    // Validate required fields
+    if (!course_code || !name) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin bắt buộc' });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO courses (
+        course_code, name, level, short_description, detailed_description,
+        duration_weeks, sessions_per_week, hours_per_session, tuition_fee,
+        requirements, objectives, status, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        course_code, name, level, short_description, detailed_description,
+        duration_weeks, sessions_per_week, hours_per_session, tuition_fee,
+        requirements, objectives, status, req.body.created_by || 1
+      ]
+    );
+
+    // Lấy id vừa tạo
+    const courseId = result.insertId;
+    const [courseRows] = await db.query('SELECT * FROM courses WHERE id = ?', [courseId]);
+
+    // Log history
+    await db.query(
+      `INSERT INTO course_history (course_id, action, changed_by)
+       VALUES (?, 'CREATE', ?)`,
+      [courseId, req.body.created_by || 1]
+    );
+
+    res.json({ success: true, course: courseRows[0] });
+  } catch (error) {
+    console.error('Error creating course:', error);
+    if (error.code === '23505') { // Unique violation
+      return res.status(400).json({ success: false, message: 'Mã khóa học đã tồn tại' });
+    }
+    res.status(500).json({ success: false, message: 'Lỗi khi tạo khóa học' });
+  }
+});
+
+// PUT /api/courses/:id - Cập nhật khóa học
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      level,
+      short_description,
+      detailed_description,
+      duration_weeks,
+      sessions_per_week,
+      hours_per_session,
+      tuition_fee,
+      requirements,
+      objectives,
+      status,
+      reason
+    } = req.body;
+
+    // Lấy dữ liệu cũ
+    const [oldRows] = await db.query('SELECT * FROM courses WHERE id = ?', [id]);
+    if (oldRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy khóa học' });
+    }
+    await db.query(
+      `UPDATE courses SET
+        name = ?, level = ?, short_description = ?, detailed_description = ?,
+        duration_weeks = ?, sessions_per_week = ?, hours_per_session = ?,
+        tuition_fee = ?, requirements = ?, objectives = ?, status = ?,
+        updated_at = NOW()
+      WHERE id = ?`,
+      [
+        name, level, short_description, detailed_description,
+        duration_weeks, sessions_per_week, hours_per_session,
+        tuition_fee, requirements, objectives, status, id
+      ]
+    );
+    // Lưu lịch sử thay đổi
+    const changed_by = req.body.changed_by || 1;
+    const fields = ['name', 'level', 'tuition_fee', 'status'];
+    for (const field of fields) {
+      if (oldRows[0][field] !== req.body[field]) {
+        await db.query(
+          `INSERT INTO course_history (course_id, action, field_changed, old_value, new_value, reason, changed_by)
+           VALUES (?, 'UPDATE', ?, ?, ?, ?, ?)`,
+          [id, field, String(oldRows[0][field]), String(req.body[field]), reason, changed_by]
+        );
+      }
+    }
+    // Lấy lại course mới nhất
+    const [rows] = await db.query('SELECT * FROM courses WHERE id = ?', [id]);
+    res.json({ success: true, course: rows[0] });
+  } catch (error) {
+    console.error('Error updating course:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi cập nhật khóa học' });
+  }
+});
+
+// PUT /api/courses/:id/archive - Kết thúc khóa học (chuyển sang ARCHIVED)
+router.put('/:id/archive', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { changed_by } = req.body;
+
+    // Check if course exists and is ACTIVE
+    const courseCheck = await db.query('SELECT * FROM courses WHERE id = $1', [id]);
+    if (courseCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy khóa học' });
+    }
+
+    if (courseCheck.rows[0].status === 'ARCHIVED') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Khóa học đã được lưu trữ trước đó' 
+      });
+    }
+
+    // Update status to ARCHIVED
+    const result = await db.query(
+      `UPDATE courses SET status = 'ARCHIVED', updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [id]
+    );
+
+    // Log to history
+    await db.query(
+      `INSERT INTO course_history (course_id, action, field_changed, old_value, new_value, reason, changed_by)
+       VALUES ($1, 'UPDATE', 'status', $2, 'ARCHIVED', 'Kết thúc khóa học', $3)`,
+      [id, courseCheck.rows[0].status, changed_by || 1]
+    );
+
+    res.json({ success: true, message: 'Đã kết thúc khóa học', course: result.rows[0] });
+  } catch (error) {
+    console.error('Error archiving course:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi kết thúc khóa học' });
+  }
+});
+
+// DELETE /api/courses/:id - Xóa khóa học
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if course is being used by any class
+    const classCheck = await db.query('SELECT COUNT(*) FROM classes WHERE course_id = $1', [id]);
+    if (parseInt(classCheck.rows[0].count) > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Không thể xóa khóa học đang được sử dụng bởi lớp học' 
+      });
+    }
+
+    await db.query('DELETE FROM courses WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Đã xóa khóa học' });
+  } catch (error) {
+    console.error('Error deleting course:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi xóa khóa học' });
+  }
+});
+
+// ==================== LESSONS ====================
+
+// GET /api/courses/:id/lessons - Lấy danh sách bài học
+router.get('/:id/lessons', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      'SELECT * FROM course_lessons WHERE course_id = $1 ORDER BY lesson_number',
+      [id]
+    );
+    res.json({ success: true, lessons: result.rows });
+  } catch (error) {
+    console.error('Error fetching lessons:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy danh sách bài học' });
+  }
+});
+
+// POST /api/courses/:id/lessons - Thêm bài học
+router.post('/:id/lessons', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { lesson_number, title, description, content, duration_minutes } = req.body;
+
+    const result = await db.query(
+      `INSERT INTO course_lessons (course_id, lesson_number, title, description, content, duration_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [id, lesson_number, title, description, content, duration_minutes]
+    );
+
+    res.json({ success: true, lesson: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating lesson:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi tạo bài học' });
+  }
+});
+
+// PUT /api/lessons/:id - Cập nhật bài học
+router.put('/lessons/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, content, duration_minutes } = req.body;
+
+    const result = await db.query(
+      `UPDATE course_lessons SET
+        title = $1, description = $2, content = $3, duration_minutes = $4
+      WHERE id = $5
+      RETURNING *`,
+      [title, description, content, duration_minutes, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy bài học' });
+    }
+
+    res.json({ success: true, lesson: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating lesson:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi cập nhật bài học' });
+  }
+});
+
+// DELETE /api/lessons/:id - Xóa bài học
+router.delete('/lessons/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM course_lessons WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Đã xóa bài học' });
+  } catch (error) {
+    console.error('Error deleting lesson:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi xóa bài học' });
+  }
+});
+
+// ==================== SUB-LESSONS ====================
+
+// GET /api/lessons/:id/sub-lessons - Lấy danh sách bài tập nhỏ
+router.get('/lessons/:id/sub-lessons', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      'SELECT * FROM course_sub_lessons WHERE lesson_id = $1 ORDER BY sub_lesson_number',
+      [id]
+    );
+    res.json({ success: true, subLessons: result.rows });
+  } catch (error) {
+    console.error('Error fetching sub-lessons:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy danh sách bài tập' });
+  }
+});
+
+// POST /api/lessons/:id/sub-lessons - Thêm bài tập nhỏ
+router.post('/lessons/:id/sub-lessons', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sub_lesson_number, title, type, content, answer_key } = req.body;
+
+    const result = await db.query(
+      `INSERT INTO course_sub_lessons (lesson_id, sub_lesson_number, title, type, content, answer_key)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [id, sub_lesson_number, title, type, content, answer_key]
+    );
+
+    res.json({ success: true, subLesson: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating sub-lesson:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi tạo bài tập' });
+  }
+});
+
+// DELETE /api/sub-lessons/:id - Xóa bài tập nhỏ
+router.delete('/sub-lessons/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM course_sub_lessons WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Đã xóa bài tập' });
+  } catch (error) {
+    console.error('Error deleting sub-lesson:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi xóa bài tập' });
+  }
+});
+
+// ==================== MATERIALS ====================
+
+// GET /api/courses/:id/materials - Lấy danh sách tài liệu
+router.get('/:id/materials', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      'SELECT * FROM course_materials WHERE course_id = $1 ORDER BY uploaded_at DESC',
+      [id]
+    );
+    res.json({ success: true, materials: result.rows });
+  } catch (error) {
+    console.error('Error fetching materials:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy danh sách tài liệu' });
+  }
+});
+
+// POST /api/courses/:id/materials - Thêm tài liệu
+router.post('/:id/materials', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { lesson_id, title, type, file_path, url, description, uploaded_by } = req.body;
+
+    const result = await db.query(
+      `INSERT INTO course_materials (course_id, lesson_id, title, type, file_path, url, description, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [id, lesson_id, title, type, file_path, url, description, uploaded_by || 1]
+    );
+
+    res.json({ success: true, material: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating material:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi thêm tài liệu' });
+  }
+});
+
+// DELETE /api/materials/:id - Xóa tài liệu
+router.delete('/materials/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM course_materials WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Đã xóa tài liệu' });
+  } catch (error) {
+    console.error('Error deleting material:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi xóa tài liệu' });
+  }
+});
+
+// ==================== HISTORY ====================
+
+// GET /api/courses/:id/history - Lấy lịch sử chỉnh sửa
+router.get('/:id/history', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      `SELECT h.*, e.full_name as changed_by_name
+       FROM course_history h
+       LEFT JOIN employees e ON h.changed_by = e.id
+       WHERE h.course_id = $1
+       ORDER BY h.changed_at DESC`,
+      [id]
+    );
+    res.json({ success: true, history: result.rows });
+  } catch (error) {
+    console.error('Error fetching history:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy lịch sử' });
+  }
+});
+
+module.exports = router;

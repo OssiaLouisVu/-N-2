@@ -1,0 +1,2 @@
+-- Migration removed: class_schedules creation was part of a feature that is being reverted.
+-- This migration is intentionally a no-op to avoid creating the class_schedules table when running migrations.

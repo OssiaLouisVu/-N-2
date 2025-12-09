@@ -1,0 +1,6 @@
+// ...existing code...
+const studentRoutes = require('./routes/studentRoutes');
+app.use('/api/student', studentRoutes);
+const feeRoutes = require('./routes/feeRoutes');
+app.use('/api/fee', feeRoutes);
+// ...existing code...

@@ -1,0 +1,2 @@
+ALTER TABLE employees
+  ADD COLUMN IF NOT EXISTS role VARCHAR(32) NULL AFTER address;
