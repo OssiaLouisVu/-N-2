@@ -42,12 +42,14 @@ console.log(
     "MAIL_PASS length =",
     process.env.MAIL_PASS ? process.env.MAIL_PASS.length : "undefined"
 );
-
 app.use(
     cors({
         origin: "http://localhost:5173",
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
     })
 );
+
 
 app.use(express.json());
 
@@ -519,57 +521,119 @@ app.use('/api/auth', authRoutes);
 // 4) GIÁO VIÊN – DANH SÁCH LỚP (DEMO FIXED DATA)
 // ======================================================
 
-const teacherClassesUpcoming = [{
-        id: 101,
-        name: "HSK3 - Giao tiếp (Lớp 01)",
-        startDate: "2025-11-20",
-        shift: "Ca tối",
-        room: "P301",
-    },
-
-    {
-        id: 102,
-        name: "HSK4 - Ngữ pháp (Lớp 02)",
-        startDate: "2025-12-01",
-        shift: "Ca sáng",
-        room: "P204",
-    },
-];
-
-const teacherClassesOngoing = [{
-        id: 201,
-        name: "HSK2 - Cơ bản (Lớp 05)",
-        startDate: "2025-10-10",
-        shift: "Ca chiều",
-        students: 18,
-    },
-    {
-        id: 202,
-        name: "HSK2 - Cơ bản (Lớp 04)",
-        startDate: "2025-10-10",
-        shift: "Ca chiều",
-        students: 10,
-    },
-];
-
-const teacherClassesFinished = [
-    { id: 301, name: "HSK1 - Lớp 03", endDate: "2025-08-01", totalSessions: 24 },
-    { id: 302, name: "HSK2 - Lớp 04", endDate: "2025-07-20", totalSessions: 20 },
-];
-
-app.get("/api/teacher/classes/upcoming", (req, res) => {
-    res.json({ success: true, data: teacherClassesUpcoming });
-});
-
-app.get("/api/teacher/classes/ongoing", (req, res) => {
-    res.json({ success: true, data: teacherClassesOngoing });
-});
-
-app.get("/api/teacher/classes/finished", (req, res) => {
-    res.json({ success: true, data: teacherClassesFinished });
-});
+// ======================================================
+// 4) GIÁO VIÊN – DANH SÁCH LỚP (LẤY TỪ CSDL THẬT)
+//    Dựa trên logic start_date và end_date trong bảng classes.
+// ======================================================
 
 // ======================================================
+// 4) GIÁO VIÊN – DANH SÁCH LỚP (LẤY TỪ CSDL THẬT) - FIX LỖI SQL VÀ LOGIC
+// ======================================================
+
+// ======================================================
+// 4) GIÁO VIÊN – DANH SÁCH LỚP (LẤY TỪ CSDL THẬT) - SỬA LỖI ĐỊNH DẠNG NGÀY VÀ CHUYỂN CỘT
+// ======================================================
+
+// ======================================================
+// HÀM LẤY DANH SÁCH LỚP THEO TRẠNG THÁI (Đã sửa lỗi hiển thị)
+// ======================================================
+const getClassListByStatus = async(req, res, status) => {
+    const u = req.params.username || req.query.username;
+
+    try {
+        // 1. Lấy instructor_id từ username
+        const [instructors] = await db.query(
+            `SELECT i.id as instructor_id 
+             FROM instructors i
+             INNER JOIN users u ON u.id = i.user_id
+             WHERE u.username = ?`, [u]
+        );
+
+        if (instructors.length === 0) {
+            return res.json({ success: true, data: [] });
+        }
+
+        const instructorId = instructors[0].instructor_id;
+
+        let dateCondition = "";
+
+        // Xác định điều kiện lọc
+        if (status === 'UPCOMING') {
+            dateCondition = "c.start_date > CURDATE()";
+        } else if (status === 'ONGOING') {
+            dateCondition = "c.start_date <= CURDATE() AND (c.end_date IS NULL OR c.end_date >= CURDATE())";
+        } else if (status === 'FINISHED') {
+            dateCondition = "c.end_date IS NOT NULL AND c.end_date < CURDATE()";
+        } else {
+            return res.status(400).json({ success: false, message: 'Invalid status' });
+        }
+
+        // QUERY SQL NÂNG CẤP:
+        // 1. Lấy đủ start_date, end_date.
+        // 2. Dùng Subquery để lấy 'room' từ bảng class_schedules (tránh join nhiều gây lỗi group by).
+        // 3. Đếm số học viên (student_count).
+        const sql = `
+            SELECT 
+                c.id,
+                c.name,
+                c.level,
+                c.start_date,
+                c.end_date,
+                
+                -- Lấy phòng học từ lịch học đầu tiên
+                (SELECT meta FROM class_schedules sch WHERE sch.class_id = c.id ORDER BY sch.scheduled_at ASC LIMIT 1) as first_schedule_meta,
+                
+                -- Đếm số học viên đang học
+                COUNT(cs.student_id) as student_count
+            FROM classes c
+            INNER JOIN class_teachers ct ON ct.class_id = c.id
+            LEFT JOIN class_students cs ON cs.class_id = c.id AND cs.status = 'ACTIVE'
+            WHERE ct.teacher_id = ? AND ${dateCondition}
+            GROUP BY c.id, c.name, c.level, c.start_date, c.end_date
+            ORDER BY c.start_date ${status === 'FINISHED' ? 'DESC' : 'ASC'}
+        `;
+
+        const [rows] = await db.query(sql, [instructorId]);
+
+        // XỬ LÝ DỮ LIỆU TRƯỚC KHI TRẢ VỀ (Parse JSON phòng học)
+        const classes = rows.map(cls => {
+            let room = "Chưa xếp";
+
+            // Giải mã JSON meta để lấy phòng
+            if (cls.first_schedule_meta) {
+                try {
+                    const metaObj = typeof cls.first_schedule_meta === 'string' ?
+                        JSON.parse(cls.first_schedule_meta) :
+                        cls.first_schedule_meta;
+                    if (metaObj && metaObj.room) room = metaObj.room;
+                } catch (e) {}
+            }
+
+            return {
+                id: cls.id,
+                name: cls.name,
+                startDate: cls.start_date, // Frontend cần trường này
+                endDate: cls.end_date, // Frontend cần trường này (trước đây bị NULL)
+                room: room, // Frontend cần trường này
+                students: cls.student_count || 0,
+                level: cls.level,
+                totalSessions: 0 // Placeholder nếu chưa tính toán
+            };
+        });
+
+        return res.json({ success: true, data: classes });
+
+    } catch (err) {
+        console.error(`❌ GET /api/teacher/classes/${status} error:`, err);
+        return res.status(500).json({ success: false, message: 'Lỗi server khi lấy danh sách lớp.' });
+    }
+};
+// Đặt lại 3 API routes
+app.get("/api/teacher/classes/upcoming", (req, res) => getClassListByStatus(req, res, 'UPCOMING'));
+app.get("/api/teacher/classes/ongoing", (req, res) => getClassListByStatus(req, res, 'ONGOING'));
+app.get("/api/teacher/classes/finished", (req, res) => getClassListByStatus(req, res, 'FINISHED'));
+
+// ==========const getClass============================================
 // 5) LỊCH GIẢNG DẠY CỦA GIÁO VIÊN (DEMO FIXED DATA)
 // ======================================================
 
@@ -602,26 +666,26 @@ const teacherTeachingSchedule = {
 };
 
 app.get("/api/teacher/:username/teaching-schedule", async(req, res) => {
-            const { username } = req.params;
+    const { username } = req.params;
 
-            try {
-                // 1. Lấy instructor_id từ username
-                const [instructors] = await db.query(
-                    `SELECT i.id as instructor_id 
+    try {
+        // 1. Lấy instructor_id từ username
+        const [instructors] = await db.query(
+            `SELECT i.id as instructor_id 
              FROM instructors i
              INNER JOIN users u ON u.id = i.user_id
              WHERE u.username = ?`, [username]
-                );
+        );
 
-                if (instructors.length === 0) {
-                    return res.json({ success: true, schedule: [] });
-                }
+        if (instructors.length === 0) {
+            return res.json({ success: true, schedule: [] });
+        }
 
-                const instructorId = instructors[0].instructor_id;
+        const instructorId = instructors[0].instructor_id;
 
-                // 2. Lấy lịch từ class_schedules của các lớp giảng viên đang dạy
-                const [schedule] = await db.query(
-                    `SELECT 
+        // 2. Lấy lịch từ class_schedules của các lớp giảng viên đang dạy
+        const [schedule] = await db.query(
+            `SELECT 
                 cs.id,
                 cs.scheduled_at,
                 cs.meta,
@@ -634,21 +698,22 @@ app.get("/api/teacher/:username/teaching-schedule", async(req, res) => {
              AND cs.scheduled_at >= NOW()
              ORDER BY cs.scheduled_at ASC
              LIMIT 50`, [instructorId]
-                );
+        );
 
-                // 3. Format kết quả cho frontend
-                const formattedSchedule = schedule.map(row => {
-                            const scheduled = new Date(row.scheduled_at);
-                            let meta = {};
-                            try {
-                                meta = row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : {};
-                            } catch (e) {}
+        // 3. Format kết quả cho frontend
+        const formattedSchedule = schedule.map(row => {
+            const scheduled = new Date(row.scheduled_at);
+            let meta = {};
+            try {
+                meta = row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : {};
+            } catch (e) {}
 
-                            return {
-                                id: row.id,
-                                date: scheduled.toISOString().split('T')[0], // YYYY-MM-DD
-                                time: `${meta.start || scheduled.toTimeString().slice(0,5)} - ${meta.end || '23:59'}`,
-                                className: `${row.class_name}${meta.room ? ` (Lớp ${meta.room})` : ''}`,
+            return {
+                id: row.id,
+                date: scheduled.toISOString().split('T')[0], // YYYY-MM-DD
+                time: `${meta.start || scheduled.toTimeString().slice(0,5)} - ${meta.end || '23:59'}`,
+                className: row.class_name,
+
                 room: meta.room || 'P201',
                 classId: row.class_id,
                 scheduledAt: row.scheduled_at
@@ -679,25 +744,24 @@ app.get("/api/teacher/schedule/:id/detail", (req, res) => {
 
 // GET /api/teacher/:username/classes
 // Lấy danh sách lớp của giảng viên (để hiển thị trong điểm danh)
-app.get("/api/teacher/:username/classes", async (req, res) => {
+app.get("/api/teacher/:username/classes", async(req, res) => {
     const { username } = req.params;
-    
+
     try {
         // 1. Lấy instructor_id từ username
         const [instructors] = await db.query(
             `SELECT i.id as instructor_id 
              FROM instructors i
              INNER JOIN users u ON u.id = i.user_id
-             WHERE u.username = ?`,
-            [username]
+             WHERE u.username = ?`, [username]
         );
-        
+
         if (instructors.length === 0) {
             return res.json({ success: true, classes: [] });
         }
-        
+
         const instructorId = instructors[0].instructor_id;
-        
+
         // 2. Lấy danh sách lớp mà giảng viên đang dạy
         const [classes] = await db.query(
             `SELECT DISTINCT
@@ -710,10 +774,9 @@ app.get("/api/teacher/:username/classes", async (req, res) => {
              FROM class_teachers ct
              INNER JOIN classes c ON c.id = ct.class_id
              WHERE ct.teacher_id = ?
-             ORDER BY c.name ASC`,
-            [instructorId]
+             ORDER BY c.name ASC`, [instructorId]
         );
-        
+
         return res.json({
             success: true,
             classes: classes.map(c => ({
@@ -937,34 +1000,37 @@ const ATTENDANCE_SESSIONS = []; // { id, classId, date, note }
 const ATTENDANCE_RECORDS = []; // { id, sessionId, studentId, status, recordedAt, reason }
 
 // 1) Lấy danh sách học viên của một lớp
-app.get("/api/classes/:classId/students", async (req, res) => {
+// 1) Lấy danh sách học viên của một lớp (CHỈ LẤY HỌC VIÊN ĐANG HỌC - ACTIVE)
+// 1) Lấy danh sách học viên của một lớp (LẤY TẤT CẢ - KHÔNG PHÂN BIỆT TRẠNG THÁI)
+// ======================================================
+// 1) API LẤY DANH SÁCH HỌC VIÊN (Chuẩn hoá trả về Mảng)
+// ======================================================
+// 1) Lấy danh sách học viên (Trả về mảng trực tiếp)
+app.get("/api/classes/:classId/students", async(req, res) => {
     const { classId } = req.params;
-    
+    console.log(`🔍 Đang lấy học viên cho lớp ID: ${classId}...`);
+
     try {
-        // Lấy danh sách học viên từ class_students JOIN với students
         const [students] = await db.query(
             `SELECT 
-                s.id,
-                s.full_name,
-                s.phone,
-                s.email,
-                s.status,
-                cs.joined_at,
+                s.id, 
+                s.full_name, 
+                s.phone, 
+                s.email, 
                 cs.status as class_status
              FROM class_students cs
              INNER JOIN students s ON s.id = cs.student_id
-             WHERE cs.class_id = ?
-             ORDER BY s.full_name ASC`,
-            [classId]
+             WHERE cs.class_id = ? 
+             ORDER BY s.full_name ASC`, [classId]
         );
-        
-        res.json(students);
+
+        console.log(`✅ Tìm thấy ${students.length} học viên.`);
+        res.json(students); // Trả về luôn: [ {id: 1...}, {id: 2...} ]
     } catch (err) {
-        console.error('❌ GET /api/classes/:classId/students error:', err);
-        res.status(500).json({ message: 'Lỗi server khi lấy danh sách học viên' });
+        console.error('❌ Lỗi:', err);
+        res.json([]); // Lỗi thì trả về mảng rỗng để không crash
     }
 });
-
 // 2) Lấy danh sách buổi điểm danh theo lớp
 app.get("/api/attendance/sessions", (req, res) => {
     const { classId } = req.query;
@@ -1029,12 +1095,12 @@ app.post("/api/attendance/sessions/:sessionId/records", async(req, res) => {
             if (session) {
                 classId = session.classId || classId;
                 date = session.date || date;
-                
+
                 // Lấy tên lớp thật từ database
                 const [classInfo] = await db.query(`
                     SELECT name FROM classes WHERE id = ? LIMIT 1
                 `, [classId]);
-                
+
                 if (classInfo.length > 0) {
                     className = classInfo[0].name;
                 } else {
@@ -1088,7 +1154,20 @@ app.post("/api/attendance/sessions/:sessionId/records", async(req, res) => {
 
     return res.status(201).json(created);
 });
+// ... (Các API cũ giữ nguyên)
 
+// 5) [MỚI] Lấy lịch sử điểm danh của một buổi
+app.get("/api/attendance/sessions/:sessionId/records", (req, res) => {
+    const { sessionId } = req.params;
+
+    // Tìm các bản ghi trong bộ nhớ tạm (ATTENDANCE_RECORDS)
+    // Lưu ý: sessionId trong mảng có thể là chuỗi hoặc số, nên dùng == để so sánh
+    const records = ATTENDANCE_RECORDS.filter(r => r.sessionId == sessionId);
+
+    return res.json({ success: true, records });
+});
+
+// ... (Các phần khác giữ nguyên)
 // ======================================================
 // TEST API
 // ======================================================

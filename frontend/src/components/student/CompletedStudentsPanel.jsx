@@ -45,9 +45,15 @@ export default function CompletedStudentsPanel({
     await loadStudents(filterStatus);
   };
 
-  const handleViewDetail = (st) => {
-    setSelectedStudent(st);
-  };
+ const handleViewDetail = (st) => {
+  // Nếu đang mở đúng học viên này => bấm lần nữa sẽ đóng
+  if (selectedStudent && selectedStudent.id === st.id) {
+    setSelectedStudent(null);      // đóng
+  } else {
+    setSelectedStudent(st);        // mở / chuyển sang học viên khác
+  }
+};
+
 
   return (
     <section

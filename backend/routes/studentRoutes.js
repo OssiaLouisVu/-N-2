@@ -36,10 +36,12 @@ async function sendCredentialsEmail({ to, fullName, username, tempPassword }) {
         });
         console.log(`Sent credentials email to ${to}`);
         return { sent: true };
+
     } catch (err) {
-        console.error('Error sending credentials email:', err && err.message ? err.message : err);
-        return { sent: false, message: err && err.message ? err.message : String(err) };
+        console.error('❌ Lỗi SQL khi xoá học viên:', err);
+        res.status(500).json({ success: false, message: err.message });
     }
+
 }
 
 /**
@@ -326,5 +328,33 @@ router.delete('/cleanup-demo-data', async(req, res) => {
         res.status(500).json({ success: false, message: 'Lỗi khi xoá dữ liệu thực tế' });
     }
 });
+/**
+ * DELETE /api/students/delete/:id
+ * Xóa học viên và dữ liệu liên quan (nếu có)
+ */
+router.delete('/delete/:id', async(req, res) => {
+    const { id } = req.params;
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // Xóa dữ liệu liên quan nếu có
+        await conn.query('DELETE FROM class_students WHERE student_id = ?', [id]);
+        await conn.query('DELETE FROM users WHERE student_id = ?', [id]);
+        await conn.query('DELETE FROM accounting WHERE student_id = ?', [id]).catch(() => {});
+        await conn.query('DELETE FROM fee_payments WHERE student_id = ?', [id]).catch(() => {});
+        await conn.query('DELETE FROM students WHERE id = ?', [id]);
+
+        await conn.commit();
+        res.json({ success: true, message: `Đã xoá học viên ID ${id}` });
+    } catch (err) {
+        await conn.rollback();
+        console.error('❌ Lỗi SQL khi xoá học viên:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        conn.release();
+    }
+});
+
 
 module.exports = router;

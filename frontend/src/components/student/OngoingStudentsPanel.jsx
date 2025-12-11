@@ -1,13 +1,17 @@
 // src/components/student/OngoingStudentsPanel.jsx
 import { useEffect, useState } from "react";
-import { searchStudents, finishSchedule } from "../../api/studentApi";
+import { searchStudents } from "../../api/studentApi";
 import StudentSearchBar from "./StudentSearchBar";
 
-export default function OngoingStudentsPanel({ onGlobalMessage, onRefreshAll, refreshToken, showEditButton }) {
+export default function OngoingStudentsPanel({
+  onGlobalMessage,
+  onRefreshAll,
+  refreshToken,
+  showEditButton, // vẫn nhận prop nhưng không dùng nữa
+}) {
   const [keyword, setKeyword] = useState("");
   const [filterStatus, setFilterStatus] = useState("ACTIVE");
   const [students, setStudents] = useState([]);
-  const [selectedStudent, setSelectedStudent] = useState(null);
   const [localMessage, setLocalMessage] = useState("");
 
   const showMessage = (msg) => {
@@ -17,10 +21,15 @@ export default function OngoingStudentsPanel({ onGlobalMessage, onRefreshAll, re
 
   const loadStudents = async (statusToUse = "ACTIVE") => {
     try {
-      const data = await searchStudents({ status: statusToUse, keyword: keyword.trim() });
+      const data = await searchStudents({
+        status: statusToUse,
+        keyword: keyword.trim(),
+      });
 
       if (!data || !data.success) {
-        showMessage((data && data.message) || "Lỗi server khi tải danh sách học viên.");
+        showMessage(
+          (data && data.message) || "Lỗi server khi tải danh sách học viên."
+        );
         return;
       }
 
@@ -39,31 +48,6 @@ export default function OngoingStudentsPanel({ onGlobalMessage, onRefreshAll, re
 
   const handleSearch = async () => {
     await loadStudents(filterStatus);
-  };
-
-  const handleViewProgress = (st) => {
-    setSelectedStudent(st);
-  };
-
-  const handleMarkCompleted = async (st) => {
-    if (!window.confirm(`Chuyển "${st.full_name}" sang trạng thái ĐÃ HỌC?`)) {
-      return;
-    }
-
-    try {
-      // Sử dụng endpoint kết thúc lịch để chuyển trạng thái (POST /api/schedules/finish)
-      await finishSchedule({ studentId: st.id });
-
-      showMessage(
-        `Đã chuyển "${st.full_name}" sang trạng thái COMPLETED – Đã học.`
-      );
-  setSelectedStudent(null);
-  await loadStudents(filterStatus);
-      if (onRefreshAll) onRefreshAll();
-    } catch (err) {
-      console.error(err);
-      showMessage("Lỗi kết nối khi cập nhật trạng thái học viên.");
-    }
   };
 
   return (
@@ -89,13 +73,12 @@ export default function OngoingStudentsPanel({ onGlobalMessage, onRefreshAll, re
         <span role="img" aria-label="student">
           🧑‍🎓
         </span>
-        Học viên đang học & quá trình học hiện tại
+        Học viên đang học
       </h3>
       <p style={{ fontSize: 13, color: "#555", marginBottom: 12 }}>
         Use case: <b>Học viên đang học</b> – nhân viên có thể tìm kiếm học viên đã
-        được xếp lớp (<b>status = ACTIVE</b>), xem thông tin cơ bản và theo dõi các
-        buổi học sắp tới. Khi học viên kết thúc khoá, có thể chuyển trạng thái sang{" "}
-        <b>COMPLETED</b>.
+        được xếp lớp (<b>status = ACTIVE</b>). Khi học viên kết thúc khoá, việc đổi
+        sang <b>COMPLETED</b> sẽ thực hiện ở use case khác (sau khi gán vào lớp).
       </p>
 
       {localMessage && (
@@ -140,13 +123,12 @@ export default function OngoingStudentsPanel({ onGlobalMessage, onRefreshAll, re
               <th style={thStyle}>Email</th>
               <th style={thStyle}>Level</th>
               <th style={thStyle}>Trạng thái</th>
-              <th style={thStyle}>Xem</th>
             </tr>
           </thead>
           <tbody>
             {students.length === 0 ? (
               <tr>
-                <td style={tdStyleOngoing} colSpan={7}>
+                <td style={tdStyleOngoing} colSpan={6}>
                   Chưa có học viên nào đang học phù hợp.
                 </td>
               </tr>
@@ -159,104 +141,12 @@ export default function OngoingStudentsPanel({ onGlobalMessage, onRefreshAll, re
                   <td style={tdStyleOngoing}>{st.email}</td>
                   <td style={tdStyleOngoing}>{st.level}</td>
                   <td style={tdStyleOngoing}>{st.status}</td>
-                  <td style={tdStyleOngoing}>
-                    <button
-                      type="button"
-                      onClick={() => handleViewProgress(st)}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 999,
-                        border: "none",
-                        background: "#1677ff",
-                        color: "#fff",
-                        cursor: "pointer",
-                        fontSize: 13,
-                      }}
-                    >
-                      Xem quá trình hiện tại
-                    </button>
-                    {showEditButton && (
-                      <button
-                        onClick={() => handleMarkCompleted(st)}
-                        style={{
-                          marginLeft: 8,
-                          padding: "6px 12px",
-                          borderRadius: 999,
-                          border: "none",
-                          background:
-                            "linear-gradient(135deg, #52c41a 0%, #73d13d 100%)",
-                          color: "#fff",
-                          cursor: "pointer",
-                          fontSize: 13,
-                        }}
-                      >
-                        Kết thúc khoá
-                      </button>
-                    )}
-                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
-
-      {/* Placeholder progress box */}
-      {selectedStudent && (
-        <div
-          style={{
-            marginTop: 16,
-            borderRadius: 16,
-            border: "1px dashed #d9d9d9",
-            padding: 16,
-            background: "#fafafa",
-          }}
-        >
-          <p style={{ fontWeight: 600, marginBottom: 8 }}>
-            Quá trình học hiện tại của: {selectedStudent.full_name} (
-            {selectedStudent.phone})
-          </p>
-          <p style={{ fontSize: 13, color: "#555" }}>
-            Hiện tại phần lịch buổi học đang để placeholder. Sau này khi bạn thiết
-            kế CSDL lớp học, thời khoá biểu, ta sẽ:
-          </p>
-          <ul style={{ fontSize: 13, color: "#555", marginLeft: 18 }}>
-            <li>Xem lớp học mà học viên đang tham gia.</li>
-            <li>Danh sách các buổi học sắp tới.</li>
-            <li>Tổng số buổi đã tham gia / vắng mặt (dựa trên bảng điểm danh).</li>
-          </ul>
-          <p
-            style={{
-              fontSize: 12,
-              fontStyle: "italic",
-              color: "#999",
-              marginTop: 8,
-            }}
-          >
-            Hiện tại: chỉ mới tạo được khung use case đúng với “Học viên đang học &
-            xem quá trình học hiện tại”.
-          </p>
-
-          <button
-            type="button"
-            onClick={() => handleMarkCompleted(selectedStudent)}
-            style={{
-              marginTop: 12,
-              padding: "8px 16px",
-              borderRadius: 999,
-              border: "none",
-              background:
-                "linear-gradient(135deg, #52c41a 0%, #73d13d 100%)",
-              color: "#fff",
-              cursor: "pointer",
-              fontWeight: 600,
-              fontSize: 13,
-            }}
-          >
-            ✅ Chuyển sang ĐÃ HỌC (COMPLETED)
-          </button>
-        </div>
-      )}
     </section>
   );
 }

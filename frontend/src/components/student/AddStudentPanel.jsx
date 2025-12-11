@@ -145,6 +145,27 @@ export default function AddStudentPanel({
     setStatus(st.status || "NEW");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+const handleDelete = async (id) => {
+  if (!window.confirm("Bạn có chắc muốn xóa học viên này không?")) return;
+
+  try {
+    const res = await fetch(`http://localhost:8080/api/students/delete/${id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showMessage("Đã xóa học viên thành công.");
+      await loadNewStudents();
+      if (onRefreshAll) onRefreshAll();
+    } else {
+      showMessage(data.message || "Không thể xóa học viên.");
+    }
+  } catch (err) {
+    console.error(err);
+    showMessage("Lỗi kết nối khi xóa học viên.");
+  }
+};
 
   const handleAssign = async (st) => {
     if (!window.confirm(`Gán lớp cho "${st.full_name}" và chuyển sang ACTIVE?`)) return;
@@ -539,7 +560,7 @@ export default function AddStudentPanel({
                   <th style={thStyle}>SĐT</th>
                   <th style={thStyle}>Email</th>
                   <th style={thStyle}>Level</th>
-                  <th style={thStyle}>Gán lớp</th>
+                  <th style={thStyle}>Xóa</th>
                   <th style={thStyle}>Sửa</th>
                 </tr>
             </thead>
@@ -559,22 +580,23 @@ export default function AddStudentPanel({
                     <td style={tdStyle}>{st.email}</td>
                     <td style={tdStyle}>{st.level}</td>
                     <td style={tdStyle}>
-                      <button
-                        type="button"
-                        onClick={() => handleAssign(st)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 999,
-                          border: "none",
-                          background: "linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)",
-                          color: "#fff",
-                          cursor: "pointer",
-                          fontSize: 13,
-                        }}
-                      >
-                        Gán lớp
-                      </button>
-                    </td>
+  <button
+    type="button"
+    onClick={() => handleDelete(st.id)}
+    style={{
+      padding: "6px 12px",
+      borderRadius: 999,
+      border: "none",
+      background: "#ef4444",
+      color: "#fff",
+      cursor: "pointer",
+      fontSize: 13,
+    }}
+  >
+    Xóa
+  </button>
+</td>
+
                     <td style={tdStyle}>
                       <button
                         type="button"

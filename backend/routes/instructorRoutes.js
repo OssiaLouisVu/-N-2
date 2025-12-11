@@ -227,10 +227,14 @@ router.get("/:id/classes", async(req, res) => {
             c.name,
             c.start_date,
             c.end_date,
-            CASE 
-                WHEN c.end_date IS NULL OR c.end_date >= CURDATE() THEN 'ACTIVE'
-                ELSE 'COMPLETED'
-            END as status,
+          CASE
+  WHEN c.start_date > CURDATE() THEN 'UPCOMING'
+  WHEN c.start_date <= CURDATE()
+       AND (c.end_date IS NULL OR c.end_date >= CURDATE())
+       THEN 'ONGOING'
+  WHEN c.end_date < CURDATE() THEN 'FINISHED'
+END AS status
+
             ct.role,
             ct.assigned_at,
             (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) as student_count
@@ -736,6 +740,30 @@ router.get("/:id/statistics", async(req, res) => {
         return res.status(500).json({
             success: false,
             message: "Lỗi server khi lấy thống kê giảng viên.",
+        });
+    }
+});
+// Xoá toàn bộ dữ liệu giảng viên demo (không xoá schema, chỉ xoá record)
+router.delete('/cleanup-demo-data', async(req, res) => {
+    try {
+        // Xoá trước các bản ghi liên kết để tránh lỗi khoá ngoại
+        await db.query('DELETE FROM class_teachers'); // phân công lớp cho giảng viên
+
+        // Xoá user role INSTRUCTOR
+        await db.query('DELETE FROM users WHERE role = "INSTRUCTOR"');
+
+        // Xoá giảng viên
+        await db.query('DELETE FROM instructors');
+
+        return res.json({
+            success: true,
+            message: 'Đã xoá toàn bộ dữ liệu giảng viên và phân công lớp giảng viên.',
+        });
+    } catch (err) {
+        console.error('Error cleanup instructors demo data:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Lỗi khi xoá dữ liệu giảng viên.',
         });
     }
 });
