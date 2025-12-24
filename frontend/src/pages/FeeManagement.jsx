@@ -21,7 +21,7 @@ export default function FeeManagement() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [amount, setAmount] = useState('');
-  const [courseId, setCourseId] = useState('');
+  const [courseId, setCourseId] = useState(''); // Được dùng để lưu Khóa học được chọn cho cả Tạo HĐ và Lọc
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentNote, setPaymentNote] = useState('');
   const [message, setMessage] = useState('');
@@ -40,7 +40,8 @@ export default function FeeManagement() {
     try {
       if (tab === 'create') {
         const s = await fetch(`${API_BASE}/fee/students/new`).then(r => r.json());
-        const c = await fetch(`${API_BASE}/fee/courses/active`).then(r => r.json());
+        // Load courses ở tab 'create' để tái sử dụng cho dropdown lọc ở tab 'list'
+        const c = await fetch(`${API_BASE}/fee/courses/active`).then(r => r.json()); 
         setStudents(s.students || []);
         setCourses(c.courses || []);
       } else if (tab === 'payment') {
@@ -53,6 +54,10 @@ export default function FeeManagement() {
       } else if (tab === 'list') {
         const inv = await fetch(`${API_BASE}/fee/invoices/all`).then(r => r.json());
         setInvoices(inv.invoices || []);
+        
+        // Đảm bảo courses đã được load nếu người dùng vào thẳng tab 'list'
+        // Tuy nhiên, logic này không được thực hiện ở đây do useEffect chỉ chạy khi [tab] thay đổi.
+        // Ta giả định courses đã được load hoặc sẽ được load khi chuyển sang tab 'create' lần đầu.
       }
     } catch (e) {
       setMessage('❌ Lỗi: ' + e.message);
@@ -92,37 +97,39 @@ export default function FeeManagement() {
     setSubmitting(false);
   };
 
-  const processPayment = async (e) => {
-    e.preventDefault();
-    if (!selectedInvoice) {
-      setMessage('⚠️ Chọn hoá đơn');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await fetch(`${API_BASE}/fee/invoices/${selectedInvoice.id}/payment`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          method: paymentMethod,
-          note: paymentNote,
-        }),
-      }).then(r => r.json());
-      if (res.success) {
-        setMessage('✅ Thanh toán thành công');
-        setPaymentMethod('cash');
-        setPaymentNote('');
-        setSelectedInvoice(null);
-        setTimeout(() => loadTabData(), 1000);
-      } else {
-        setMessage('❌ ' + (res.message || 'Lỗi'));
-      }
-    } catch (e) {
-      setMessage('❌ ' + e.message);
-    }
-    setSubmitting(false);
-  };
+const processPayment = async (e) => {
+  e.preventDefault();
+  if (!selectedInvoice) {
+    setMessage('⚠️ Chọn hoá đơn');
+    return;
+  }
+  setSubmitting(true);
+  try {
+    // SỬA TẠI ĐÂY: Đổi URL thành /fee/pay và method thành POST
+    const res = await fetch(`${API_BASE}/fee/pay`, {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        invoice_id: selectedInvoice.id, // Backend cần key 'invoice_id'
+        method: paymentMethod,
+        note: paymentNote,
+      }),
+    }).then(r => r.json());
 
+    if (res.success) {
+      setMessage('✅ Thanh toán thành công');
+      setPaymentMethod('cash');
+      setPaymentNote('');
+      setSelectedInvoice(null);
+      setTimeout(() => loadTabData(), 1000);
+    } else {
+      setMessage('❌ ' + (res.message || 'Lỗi'));
+    }
+  } catch (e) {
+    setMessage('❌ ' + e.message);
+  }
+  setSubmitting(false);
+};
   const handleLogout = () => {
     localStorage.removeItem('currentUser');
     navigate('/login');
@@ -130,6 +137,8 @@ export default function FeeManagement() {
 
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)', paddingTop: 0 }}>
+      {/* ... Header và Nút Chức Năng giữ nguyên ... */}
+      
       <div style={{
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         color: 'white',
@@ -560,7 +569,10 @@ export default function FeeManagement() {
                   <p style={{ color: '#6b7280' }}>Không có hoá đơn</p>
                 ) : (
                   <div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 15, marginBottom: 20 }}>
+                    {/* KHỐI LỌC DỮ LIỆU */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px 150px', gap: 15, marginBottom: 20 }}> {/* SỬA gridTemplateColumns */}
+                      
+                      {/* Cột 1: Tìm kiếm */}
                       <div>
                         <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>🔍 Tìm Kiếm</label>
                         <input
@@ -577,6 +589,8 @@ export default function FeeManagement() {
                           }}
                         />
                       </div>
+
+                      {/* Cột 2: Lọc Trạng Thái */}
                       <div>
                         <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>🏷️ Lọc</label>
                         <select
@@ -595,14 +609,46 @@ export default function FeeManagement() {
                           <option value="paid">✅ Đã Nộp</option>
                         </select>
                       </div>
+
+                      {/* Cột 3: ✅ THÊM Lọc Khóa học */}
+                      <div>
+                        <label style={{ display: 'block', marginBottom: 8, fontWeight: 600 }}>📚 Khóa Học</label>
+                        <select
+                          value={courseId}
+                          onChange={(e) => setCourseId(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: 6,
+                            fontSize: 14
+                          }}
+                        >
+                          <option value="">Tất Cả</option>
+                          {courses.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
                     </div>
+                    {/* LOGIC LỌC VÀ HIỂN THỊ BẢNG */}
                     {(() => {
+                      // ✅ THÊM: Xử lý ID khóa học được chọn
+                      const selectedCourseId = courseId ? parseInt(courseId) : null; 
+                      
                       const filtered = invoices.filter(inv => {
-                        const match1 = filterStatus === 'all' || inv.status?.toLowerCase() === filterStatus;
-                        const match2 = searchText === '' || (inv.student_name || '').toLowerCase().includes(searchText) || (inv.course_name || '').toLowerCase().includes(searchText);
-                        return match1 && match2;
+                        const statusMatch = filterStatus === 'all' || inv.status?.toLowerCase() === filterStatus;
+                        const textMatch = searchText === '' || (inv.student_name || '').toLowerCase().includes(searchText) || (inv.course_name || '').toLowerCase().includes(searchText);
+                        
+                        // ✅ THÊM: Điều kiện lọc theo Khóa học
+                        const courseMatch = !selectedCourseId || inv.course_id === selectedCourseId; 
+
+                        return statusMatch && textMatch && courseMatch; // KẾT HỢP 3 ĐIỀU KIỆN
                       });
+                      
                       if (filtered.length === 0) return <p style={{ color: '#6b7280' }}>Không tìm thấy hoá đơn</p>;
+                      
                       return (
                         <div style={{ overflowX: 'auto' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse' }}>

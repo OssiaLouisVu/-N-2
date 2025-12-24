@@ -52,7 +52,7 @@ export default function CourseManagementPanel() {
 
   return (
     <div className="course-management" style={{ width: '100%' }}>
-      <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>📚 Quản lý Khóa học</h2>
+      <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}></h2>
       
       {/* Controls */}
       <div style={{ 

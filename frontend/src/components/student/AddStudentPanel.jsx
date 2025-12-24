@@ -145,6 +145,27 @@ export default function AddStudentPanel({
     setStatus(st.status || "NEW");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+const handleDelete = async (id) => {
+  if (!window.confirm("Bạn có chắc muốn xóa học viên này không?")) return;
+
+  try {
+    const res = await fetch(`http://localhost:8080/api/students/delete/${id}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showMessage("Đã xóa học viên thành công.");
+      await loadNewStudents();
+      if (onRefreshAll) onRefreshAll();
+    } else {
+      showMessage(data.message || "Không thể xóa học viên.");
+    }
+  } catch (err) {
+    console.error(err);
+    showMessage("Lỗi kết nối khi xóa học viên.");
+  }
+};
 
   const handleAssign = async (st) => {
     if (!window.confirm(`Gán lớp cho "${st.full_name}" và chuyển sang ACTIVE?`)) return;
@@ -233,13 +254,7 @@ export default function AddStudentPanel({
           </span>
           Học viên đăng ký mới & lưu thông tin
         </h3>
-        <p style={{ fontSize: 13, color: "#555", marginBottom: 16 }}>
-          Use case: <b>Học viên đăng ký mới</b> – nhân viên nhập thông tin cơ bản
-          của học viên. Ban đầu trạng thái thường là <b>NEW – Mới đăng ký</b>.
-          Sau này khi xếp lớp, bạn có thể sửa lại trạng thái sang{" "}
-          <b>ACTIVE – Đang học</b>, và khi hoàn thành khoá học chuyển sang{" "}
-          <b>COMPLETED – Đã học</b>.
-        </p>
+        
 
         {localMessage && (
           <div
@@ -479,10 +494,7 @@ export default function AddStudentPanel({
           </span>
           Tìm kiếm & chỉnh sửa học viên mới (status = NEW)
         </h4>
-        <p style={{ fontSize: 13, color: "#555", marginBottom: 12 }}>
-          Nhập họ tên, số điện thoại hoặc email để tìm các học viên mới đăng ký.
-          Chọn nút <b>Sửa</b> để đổ dữ liệu lên form phía trên.
-        </p>
+        
 
         <div
           style={{
@@ -539,16 +551,14 @@ export default function AddStudentPanel({
                   <th style={thStyle}>SĐT</th>
                   <th style={thStyle}>Email</th>
                   <th style={thStyle}>Level</th>
-                  <th style={thStyle}>Gán lớp</th>
+                  <th style={thStyle}>Xóa</th>
                   <th style={thStyle}>Sửa</th>
                 </tr>
             </thead>
             <tbody>
               {newStudents.length === 0 ? (
                 <tr>
-                  <td style={tdStyle} colSpan={6}>
-                    Không có học viên nào (NEW) phù hợp.
-                  </td>
+                  
                 </tr>
               ) : (
                 newStudents.map((st, idx) => (
@@ -559,22 +569,23 @@ export default function AddStudentPanel({
                     <td style={tdStyle}>{st.email}</td>
                     <td style={tdStyle}>{st.level}</td>
                     <td style={tdStyle}>
-                      <button
-                        type="button"
-                        onClick={() => handleAssign(st)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 999,
-                          border: "none",
-                          background: "linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)",
-                          color: "#fff",
-                          cursor: "pointer",
-                          fontSize: 13,
-                        }}
-                      >
-                        Gán lớp
-                      </button>
-                    </td>
+  <button
+    type="button"
+    onClick={() => handleDelete(st.id)}
+    style={{
+      padding: "6px 12px",
+      borderRadius: 999,
+      border: "none",
+      background: "#ef4444",
+      color: "#fff",
+      cursor: "pointer",
+      fontSize: 13,
+    }}
+  >
+    Xóa
+  </button>
+</td>
+
                     <td style={tdStyle}>
                       <button
                         type="button"

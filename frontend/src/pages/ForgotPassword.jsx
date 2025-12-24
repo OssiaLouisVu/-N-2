@@ -5,7 +5,7 @@ const API_BASE = "http://localhost:8080";
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
-  const [role, setRole] = useState("STAFF"); // Vai trò mặc định
+  const [role, setRole] = useState("STUDENT"); 
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,12 +28,12 @@ export default function ForgotPassword() {
       
       if (data.success) {
         setSuccess(true);
-        setMessage(data.message);
+        setMessage(data.message); 
       } else {
-        setMessage(data.message || "Có lỗi xảy ra, vui lòng thử lại");
+        setMessage(data.message || "Yêu cầu đặt lại mật khẩu thất bại. Vui lòng kiểm tra lại email và vai trò.");
       }
     } catch (e) {
-      setMessage("Không thể kết nối đến server");
+      setMessage("❌ Lỗi kết nối. Không thể gửi yêu cầu đến máy chủ. Vui lòng kiểm tra lại đường truyền.");
     } finally {
       setLoading(false);
     }
@@ -79,11 +79,10 @@ export default function ForgotPassword() {
                 disabled={loading}
               >
                 <option value="STUDENT">Học viên</option>
-                <option value="INSTRUCTOR">Giảng viên</option>
-                <option value="TEACHER">Giáo viên</option>
+                <option value="INSTRUCTOR">Giảng viên </option> 
                 <option value="STAFF">Nhân viên lễ tân</option>
                 <option value="ACCOUNTANT">Kế toán</option>
-                <option value="MANAGER">Quản lý</option>
+                {/* Đã xóa tùy chọn MANAGER (Quản lý) tại đây */}
               </select>
             </div>
 

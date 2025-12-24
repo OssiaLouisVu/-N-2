@@ -5,7 +5,7 @@ const db = require("../db"); // connection pool mysql2
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 
-// create a mail transporter using env vars (server.js loads dotenv)
+// Cấu hình gửi mail
 const mailTransporter = nodemailer.createTransport({
     service: process.env.MAIL_SERVICE || 'gmail',
     auth: {
@@ -14,6 +14,7 @@ const mailTransporter = nodemailer.createTransport({
     },
 });
 
+// Hàm gửi email thông tin tài khoản
 async function sendCredentialsEmail({ to, fullName, username, tempPassword }) {
     if (!to) {
         console.log('No email provided for student, skipping sending credentials.');
@@ -37,294 +38,304 @@ async function sendCredentialsEmail({ to, fullName, username, tempPassword }) {
         console.log(`Sent credentials email to ${to}`);
         return { sent: true };
     } catch (err) {
-        console.error('Error sending credentials email:', err && err.message ? err.message : err);
-        return { sent: false, message: err && err.message ? err.message : String(err) };
+        console.error('Lỗi gửi email:', err);
+        return { sent: false, message: err.message };
     }
 }
 
-/**
- * GET /api/students
- * Query:
- *   - status: NEW | ACTIVE | COMPLETED (tuỳ chọn)
- *   - keyword: tìm theo tên / sđt / email (tuỳ chọn)
- */
+// ============================================
+// 1. API QUẢN LÝ HỌC VIÊN (CRUD)
+// ============================================
+
+// GET /api/students
 router.get("/", async(req, res) => {
     const { status, keyword } = req.query;
-
-    let sql = `
-        SELECT
-            s.id,
-            s.full_name,
-            s.phone,
-            s.email,
-            s.level,
-            s.note,
-            s.status,
-            s.payment_status,
-            s.created_at,
-            s.updated_at
-        FROM students s
-    WHERE 1 = 1
-  `;
+    let sql = `SELECT * FROM students WHERE 1 = 1`;
     const params = [];
 
     if (status) {
-        sql += " AND s.status = ? ";
+        sql += " AND status = ? ";
         params.push(status);
     }
-
     if (keyword && keyword.trim() !== "") {
         const kw = `%${keyword.trim()}%`;
-        sql += " AND (s.full_name LIKE ? OR s.phone LIKE ? OR s.email LIKE ?)";
+        sql += " AND (full_name LIKE ? OR phone LIKE ? OR email LIKE ?)";
         params.push(kw, kw, kw);
     }
-
-    sql += " ORDER BY s.created_at DESC";
+    sql += " ORDER BY created_at DESC";
 
     try {
         const [rows] = await db.query(sql, params);
         return res.json({ success: true, students: rows });
     } catch (err) {
-        console.error("Error SELECT students:", err);
-        return res.status(500).json({
-            success: false,
-            message: "Lỗi server khi lấy danh sách học viên.",
-        });
+        return res.status(500).json({ success: false, message: "Lỗi server." });
     }
 });
 
-/**
- * POST /api/students
- * Body: { full_name, phone, email, level, note, status }
- * status mặc định 'NEW' nếu không truyền.
- */
+// POST /api/students (Tạo mới + Tạo User + Gửi Email)
 router.post("/", async(req, res) => {
-    const { id: providedId, full_name, phone, email, level, note, status } = req.body;
+    const { full_name, phone, email, level, note, status } = req.body;
 
-    if (!full_name || !phone) {
-        return res.status(400).json({
-            success: false,
-            message: "Họ tên và SĐT là bắt buộc.",
-        });
-    }
-
-    // Email is required
-    if (!email || !String(email).trim()) {
-        return res.status(400).json({
-            success: false,
-            message: "Email là bắt buộc (để gửi thông báo cho học viên).",
-        });
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(String(email).trim())) {
-        return res.status(400).json({
-            success: false,
-            message: "Email không hợp lệ. Vui lòng nhập email đúng định dạng.",
-        });
-    }
+    if (!full_name || !phone) return res.status(400).json({ success: false, message: "Họ tên và SĐT là bắt buộc." });
 
     let conn;
     try {
         conn = await db.getConnection();
         await conn.beginTransaction();
 
-        let studentId;
+        // Insert Student
+        const [result] = await conn.query(
+            `INSERT INTO students (full_name, phone, email, level, note, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`, [full_name, phone, email || null, level || null, note || null, status || 'NEW']
+        );
+        const studentId = result.insertId;
 
-        if (providedId !== undefined && providedId !== null && String(providedId).trim() !== '') {
-            // Client provided an explicit id. Ensure it doesn't exist yet.
-            const pid = Number(providedId);
-            if (!Number.isInteger(pid) || pid <= 0) {
-                return res.status(400).json({ success: false, message: 'ID không hợp lệ' });
-            }
-            const [existing] = await conn.query('SELECT id FROM students WHERE id = ?', [pid]);
-            if (existing.length > 0) {
-                return res.status(400).json({ success: false, message: 'ID đã tồn tại, vui lòng chọn ID khác' });
-            }
-
-            const insertSql = `
-                    INSERT INTO students (id, full_name, phone, email, level, note, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-                `;
-            const params = [pid, full_name, phone, email || null, level || null, note || null, status || 'NEW'];
-            await conn.query(insertSql, params);
-            studentId = pid;
-        } else {
-            const insertSql = `
-                    INSERT INTO students (full_name, phone, email, level, note, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
-                `;
-            const params = [full_name, phone, email || null, level || null, note || null, status || 'NEW'];
-            const [result] = await conn.query(insertSql, params);
-            studentId = result.insertId;
-        }
-
-        // Create login account automatically: username = student<id>, password = 'pass1234'
+        // Create User Login
         const username = `student${studentId}`;
         const tempPassword = 'pass1234';
         const hashed = await bcrypt.hash(tempPassword, 10);
 
-        // Insert into users using existing schema (some DBs may not have created_at/updated_at)
         await conn.query(
             'INSERT INTO users (username, password, role, student_id) VALUES (?, ?, ?, ?)', [username, hashed, 'STUDENT', studentId]
         );
 
         await conn.commit();
 
-        // After commit, attempt to send credentials email (if email provided)
-        let emailResult = { sent: false, message: 'No email' };
-        try {
-            emailResult = await sendCredentialsEmail({
-                to: email || null,
-                fullName: full_name,
-                username,
-                tempPassword,
-            });
-        } catch (e) {
-            console.error('Unexpected error when sending credentials email:', e);
-            emailResult = { sent: false, message: e && e.message ? e.message : String(e) };
+        // Gửi email sau khi commit thành công
+        if (email) {
+            sendCredentialsEmail({ to: email, fullName: full_name, username, tempPassword }).catch(console.error);
         }
 
-        return res.json({
-            success: true,
-            message: 'Đã lưu thông tin học viên và tạo tài khoản.',
-            id: studentId,
-            username,
-            tempPassword,
-            email: email || null,
-            emailResult,
-        });
+        return res.json({ success: true, message: 'Đã tạo học viên và tài khoản.', id: studentId });
     } catch (err) {
         if (conn) await conn.rollback();
-        console.error('Error INSERT student and create user:', err);
         return res.status(500).json({ success: false, message: 'Lỗi server khi thêm học viên.' });
     } finally {
-        if (conn) conn.release && conn.release();
+        if (conn) conn.release();
     }
 });
 
-/**
- * PUT /api/students/:id
- * Body cho phép truyền 1 phần:
- *   { full_name?, phone?, email?, level?, note?, status? }
- * Chỉ update các field có trong body.
- */
+// PUT /api/students/:id
 router.put("/:id", async(req, res) => {
     const studentId = req.params.id;
     const { full_name, phone, email, level, note, status } = req.body;
+    // Logic update đơn giản
+    try {
+        await db.query(
+            `UPDATE students SET full_name=?, phone=?, email=?, level=?, note=?, status=?, updated_at=NOW() WHERE id=?`, [full_name, phone, email, level, note, status, studentId]
+        );
+        res.json({ success: true, message: "Đã cập nhật." });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Lỗi server." });
+    }
+});
 
-    const fields = [];
-    const params = [];
+// DELETE /api/students/delete/:id
+router.delete('/delete/:id', async(req, res) => {
+    const { id } = req.params;
+    let conn;
+    try {
+        conn = await db.getConnection();
+        await conn.beginTransaction();
 
-    if (full_name !== undefined) {
-        fields.push("full_name = ?");
-        params.push(full_name);
-    }
-    if (phone !== undefined) {
-        fields.push("phone = ?");
-        params.push(phone);
-    }
-    if (email !== undefined) {
-        fields.push("email = ?");
-        params.push(email);
-    }
-    if (level !== undefined) {
-        fields.push("level = ?");
-        params.push(level);
-    }
-    if (note !== undefined) {
-        fields.push("note = ?");
-        params.push(note);
-    }
-    if (status !== undefined) {
-        fields.push("status = ?");
-        params.push(status);
-    }
+        await conn.query('DELETE FROM class_students WHERE student_id = ?', [id]);
+        await conn.query('DELETE FROM users WHERE student_id = ?', [id]);
+        await conn.query('DELETE FROM students WHERE id = ?', [id]);
 
-    if (fields.length === 0) {
-        return res.status(400).json({
-            success: false,
-            message: "Không có trường nào để cập nhật.",
-        });
+        await conn.commit();
+        res.json({ success: true, message: `Đã xoá học viên ID ${id}` });
+    } catch (err) {
+        if (conn) await conn.rollback();
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        if (conn) conn.release();
     }
+});
 
-    const sql = `
-    UPDATE students
-    SET ${fields.join(", ")}, updated_at = NOW()
-    WHERE id = ?
-  `;
-    params.push(studentId);
+// ============================================
+// 2. API XEM LỊCH HỌC (QUAN TRỌNG CHO HỌC VIÊN)
+// ============================================
+
+/**
+ * GET /api/students/:id/my-schedule
+ * Lấy lịch học từ các lớp mà học viên đang tham gia (ACTIVE)
+ * Logic mới: Join class_students -> class_schedules
+ */
+// GET /api/students/:id - Lấy chi tiết học viên
+// ============================================
+// SỬA LẠI ĐOẠN NÀY TRONG studentRoutes.js
+// ============================================
+
+// GET /api/students/:id - Lấy chi tiết học viên + Lazy Check hoàn thành
+router.get('/:id', async(req, res) => {
+    const { id } = req.params;
+
+    // SỬA LỖI: Dùng db thay vì pool
+    let conn;
+    try {
+        conn = await db.getConnection(); // Lấy connection từ db pool
+
+        // 1. Lấy thông tin học viên
+        const [rows] = await conn.query(`SELECT * FROM students WHERE id = ?`, [id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Not found' });
+        }
+
+        let student = rows[0];
+
+        // 2. LOGIC MỚI: Kiểm tra tự động hoàn thành (Lazy Check)
+        // Chỉ kiểm tra nếu đang ACTIVE
+        if (student.status === 'ACTIVE') {
+            // Tìm ngày kết thúc của lớp mà học viên đang học
+            const [classInfo] = await conn.query(`
+                SELECT c.end_date 
+                FROM classes c
+                JOIN class_students cs ON c.id = cs.class_id
+                WHERE cs.student_id = ? AND cs.status = 'ACTIVE'
+                ORDER BY c.end_date DESC
+                LIMIT 1
+            `, [id]);
+
+            if (classInfo.length > 0 && classInfo[0].end_date) {
+                const endDate = new Date(classInfo[0].end_date);
+                const today = new Date();
+
+                // Nếu ngày hiện tại đã vượt quá ngày kết thúc
+                if (today > endDate) {
+                    // Update database sang COMPLETED
+                    await conn.query(`UPDATE students SET status = 'COMPLETED' WHERE id = ?`, [id]);
+
+                    // Update biến tạm để trả về client luôn cho đúng
+                    student.status = 'COMPLETED';
+                }
+            }
+        }
+
+        res.json({ success: true, student });
+    } catch (err) {
+        console.error("Lỗi lấy chi tiết học viên:", err);
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        if (conn) conn.release(); // Quan trọng: Giải phóng connection
+    }
+});
+// ============================================
+// 2. API XEM LỊCH HỌC (FIX CHO FRONTEND CŨ)
+// GET /api/students/:username/schedule
+// ============================================
+// ============================================
+// 2. API XEM LỊCH HỌC (ĐÃ VÁ LỖI LAZY CHECK)
+// GET /api/students/:username/schedule
+// ============================================
+router.get('/:username/schedule', async(req, res) => {
+    const { username } = req.params;
+    let conn;
 
     try {
-        const [result] = await db.query(sql, params);
+        conn = await db.getConnection();
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                message: "Không tìm thấy học viên để cập nhật.",
+        // BƯỚC 1: Lấy ID và Status hiện tại của học viên
+        const [users] = await conn.query(`
+            SELECT s.id, s.status 
+            FROM users u
+            JOIN students s ON u.student_id = s.id
+            WHERE u.username = ?
+        `, [username]);
+
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const student = users[0];
+        const studentId = student.id;
+
+        // BƯỚC 2: (QUAN TRỌNG) Lazy Check - Kiểm tra xem lớp đã kết thúc chưa
+        // Nếu đang ACTIVE mà ngày hiện tại > ngày kết thúc lớp -> Chuyển sang COMPLETED
+        if (student.status === 'ACTIVE') {
+            const [classInfo] = await conn.query(`
+                SELECT c.end_date 
+                FROM classes c
+                JOIN class_students cs ON c.id = cs.class_id
+                WHERE cs.student_id = ? AND cs.status = 'ACTIVE'
+                ORDER BY c.end_date DESC
+                LIMIT 1
+            `, [studentId]);
+
+            if (classInfo.length > 0 && classInfo[0].end_date) {
+                const endDate = new Date(classInfo[0].end_date);
+                const today = new Date();
+
+                // Reset giờ về 00:00:00 để so sánh ngày cho chuẩn
+                today.setHours(0, 0, 0, 0);
+                endDate.setHours(0, 0, 0, 0);
+
+                if (today > endDate) {
+                    console.log(`[Auto-Complete] Student ${username} finished class. Updating to COMPLETED.`);
+
+                    // Update DB ngay lập tức
+                    await conn.query(`UPDATE students SET status = 'COMPLETED' WHERE id = ?`, [studentId]);
+
+                    // Update status trong biến tạm để logic bên dưới biết là đã hết học
+                    student.status = 'COMPLETED';
+                }
+            }
+        }
+
+        // BƯỚC 3: Nếu sau khi check mà Status đã là COMPLETED (hoặc NEW/DROPPED)
+        // -> Trả về lịch trống luôn, không cần query nữa
+        if (student.status !== 'ACTIVE') {
+            return res.json({
+                success: true,
+                schedule: [],
+                message: "Khoá học đã kết thúc hoặc chưa bắt đầu."
             });
         }
 
-        return res.json({
-            success: true,
-            message: "Đã cập nhật thông tin học viên.",
+        // BƯỚC 4: Nếu vẫn ACTIVE -> Lấy lịch học bình thường
+        const sql = `
+            SELECT 
+                cs.scheduled_at, 
+                cs.meta, 
+                c.name as class_name,
+                c.level
+            FROM class_students cst
+            JOIN class_schedules cs ON cst.class_id = cs.class_id
+            JOIN classes c ON c.id = cst.class_id
+            WHERE cst.student_id = ? 
+              AND cst.status = 'ACTIVE'
+              AND cs.scheduled_at >= CURDATE()
+            ORDER BY cs.scheduled_at ASC
+        `;
+
+        const [rows] = await conn.query(sql, [studentId]);
+
+        // Format dữ liệu trả về cho Frontend
+        const schedule = rows.map(row => {
+            let meta = {};
+            try { meta = JSON.parse(row.meta || '{}'); } catch (e) {}
+
+            const tStart = meta.start ? meta.start.slice(0, 5) : '00:00';
+            const tEnd = meta.end ? meta.end.slice(0, 5) : '00:00';
+
+            return {
+                date: row.scheduled_at,
+                timeStart: tStart,
+                timeEnd: tEnd,
+                room: meta.room || 'Chưa xếp',
+                className: row.class_name,
+                level: row.level
+            };
         });
+
+        res.json({ success: true, schedule: schedule });
+
     } catch (err) {
-        console.error("Error UPDATE student:", err);
-        return res.status(500).json({
-            success: false,
-            message: "Lỗi server khi cập nhật học viên.",
-        });
+        console.error("Lỗi lấy lịch:", err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    } finally {
+        if (conn) conn.release();
     }
 });
 
-/**
- * GET /api/students/:username/schedule
- * Trả về lịch học của học viên, bao gồm status của từng lịch
- */
-router.get('/:username/schedule', async(req, res) => {
-    const { username } = req.params;
-    // Lấy studentId từ username
-    const [userRows] = await db.query('SELECT student_id FROM users WHERE username = ?', [username]);
-    if (!userRows || userRows.length === 0) {
-        return res.status(404).json({ success: false, message: 'Không tìm thấy học viên' });
-    }
-    const studentId = userRows[0].student_id;
-    // Lấy lịch học, join với bảng classes để lấy ngày kết thúc khoá
-    const [rows] = await db.query(`
-        SELECT sc.id, sc.class_id, sc.scheduled_at as date, sc.status, sc.meta,
-               c.name as className, c.end_date as classEndDate, sc.room,
-               JSON_UNQUOTE(JSON_EXTRACT(sc.meta, '$.timeStart')) as timeStart,
-               JSON_UNQUOTE(JSON_EXTRACT(sc.meta, '$.timeEnd')) as timeEnd
-        FROM schedules sc
-        LEFT JOIN classes c ON sc.class_id = c.id
-        WHERE sc.student_id = ?
-        ORDER BY sc.scheduled_at ASC
-    `, [studentId]);
-    // Đảm bảo FE nhận đúng status và ngày kết thúc khoá
-    return res.json({ success: true, schedule: rows });
-});
-
-/**
- * DELETE /api/cleanup-demo-data
- * Xóa toàn bộ dữ liệu thực tế (học viên, user, schedules, classes) khỏi CSDL, chỉ giữ lại cấu trúc bảng
- * KHÔNG ảnh hưởng logic, chỉ xóa dữ liệu demo/thực tế
- */
-router.delete('/cleanup-demo-data', async(req, res) => {
-    try {
-        // Xóa dữ liệu liên quan đến học viên, lịch học, lớp, tài khoản user
-        await db.query('DELETE FROM schedules');
-        await db.query('DELETE FROM class_schedules');
-        await db.query('DELETE FROM class_students');
-        await db.query('DELETE FROM classes');
-        await db.query('DELETE FROM users WHERE role = "STUDENT"');
-        await db.query('DELETE FROM students');
-        res.json({ success: true, message: 'Đã xoá toàn bộ dữ liệu thực tế (học viên, lớp, lịch, user)' });
-    } catch (err) {
-        console.error('Error cleanup demo data:', err);
-        res.status(500).json({ success: false, message: 'Lỗi khi xoá dữ liệu thực tế' });
-    }
-});
 
 module.exports = router;

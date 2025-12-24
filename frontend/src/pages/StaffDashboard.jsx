@@ -1,32 +1,30 @@
-// src/pages/StaffDashboard.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+// Các component quản lý Học viên
 import AddStudentPanel from "../components/student/AddStudentPanel.jsx";
 import OngoingStudentsPanel from "../components/student/OngoingStudentsPanel.jsx";
 import CompletedStudentsPanel from "../components/student/CompletedStudentsPanel.jsx";
+
+// Component quản lý Lớp (Mới)
 import ClassManagementPanel from "../components/class/ClassManagementPanel";
+
+// Component quản lý Khóa học
 import CourseManagementPanel from "../components/course/CourseManagementPanel";
-import AddInstructorPanel from "../components/instructor/AddInstructorPanel.jsx";
-import ActiveInstructorsPanel from "../components/instructor/ActiveInstructorsPanel.jsx";
-import InactiveInstructorsPanel from "../components/instructor/InactiveInstructorsPanel.jsx";
+
+// Component quản lý Giảng viên (MỚI)
+import InstructorManagementPanel from "../components/instructor/InstructorManagementPanel";
 
 function StaffDashboard() {
   const navigate = useNavigate();
 
-  // Bật/tắt khu "Quản lý học viên"
+  // --- STATE QUẢN LÝ HIỂN THỊ ---
   const [showStudentSection, setShowStudentSection] = useState(true);
-  // Bật/tắt khu "Quản lý lớp"
   const [showClassSection, setShowClassSection] = useState(false);
-  // Bật/tắt khu "Quản lý khóa học"
   const [showCourseSection, setShowCourseSection] = useState(false);
-  // Bật/tắt khu "Quản lý giảng viên"
-  const [showInstructorSection, setShowInstructorSection] = useState(false);
+  const [showInstructorSection, setShowInstructorSection] = useState(false); // State mới cho Giảng viên
 
-  // Message chung cho cả 3 panel (thông báo thành công / lỗi)
   const [globalMessage, setGlobalMessage] = useState("");
-
-  // Flag để các panel có thể dùng để biết khi nào cần reload lại list
   const [refreshToken, setRefreshToken] = useState(0);
 
   const handleLogout = () => {
@@ -34,14 +32,23 @@ function StaffDashboard() {
     navigate("/login");
   };
 
-  const handleToggleStudentSection = () => {
-    setShowStudentSection((prev) => !prev);
+  const handleRefreshAllStudents = () => {
+    setRefreshToken((t) => t + 1);
   };
 
-  // Hàm cho phép panel con gọi để reload cả 3 list
-  const handleRefreshAllStudents = () => {
-    // chỉ cần tăng token, các panel nếu có useEffect([...,[refreshToken]]) sẽ tự reload
-    setRefreshToken((t) => t + 1);
+  // Hàm chuyển đổi hiển thị thông minh (Tắt cái này bật cái kia cho đỡ rối)
+  const toggleSection = (sectionName) => {
+    // Reset all
+    setShowStudentSection(false);
+    setShowClassSection(false);
+    setShowCourseSection(false);
+    setShowInstructorSection(false);
+
+    // Bật cái được chọn
+    if (sectionName === 'student') setShowStudentSection(true);
+    if (sectionName === 'class') setShowClassSection(true);
+    if (sectionName === 'course') setShowCourseSection(true);
+    if (sectionName === 'instructor') setShowInstructorSection(true);
   };
 
   return (
@@ -75,42 +82,23 @@ function StaffDashboard() {
 
       {/* HEADER */}
       <div style={{ maxWidth: 900 }}>
-        <h1
-          style={{
-            fontSize: 32,
-            fontWeight: 700,
-            marginBottom: 8,
-          }}
-        >
-          Dashboard nhân viên trung tâm (STAFF)
+        <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>
+          Dashboard nhân viên trung tâm 
         </h1>
-        <p style={{ color: "#555", marginBottom: 32 }}>
-          Đây là màn hình làm việc của nhân viên lễ tân / CSKH.
-        </p>
+       
       </div>
 
-      {/* KHU CHỨC NĂNG */}
+      {/* KHU CHỨC NĂNG (MENU) */}
       <section style={{ marginBottom: 32 }}>
-        <h2
-          style={{
-            fontSize: 18,
-            fontWeight: 600,
-            marginBottom: 12,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <span role="img" aria-label="pin">
-            📌
-          </span>
-          Chức năng
+        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <span role="img" aria-label="pin">📌</span> Chức năng
         </h2>
 
-        <div style={{ display: "flex", gap: 16 }}>
-          {/* Nút mở / ẩn khu Quản lý học viên */}
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          
+          {/* 1. Nút Quản lý học viên */}
           <button
-            onClick={handleToggleStudentSection}
+            onClick={() => toggleSection('student')}
             style={{
               padding: "12px 24px",
               borderRadius: 999,
@@ -118,12 +106,8 @@ function StaffDashboard() {
               cursor: "pointer",
               fontWeight: 600,
               fontSize: 15,
-              boxShadow: showStudentSection
-                ? "0 10px 20px rgba(88, 101, 242, 0.25)"
-                : "0 4px 10px rgba(0,0,0,0.08)",
-              background: showStudentSection
-                ? "linear-gradient(135deg, #5865f2, #7b5cff)"
-                : "#f2f3ff",
+              boxShadow: showStudentSection ? "0 10px 20px rgba(88, 101, 242, 0.25)" : "0 4px 10px rgba(0,0,0,0.08)",
+              background: showStudentSection ? "linear-gradient(135deg, #5865f2, #7b5cff)" : "#f2f3ff",
               color: showStudentSection ? "#fff" : "#333",
               transition: "all 0.25s",
             }}
@@ -131,9 +115,9 @@ function StaffDashboard() {
             Quản lý học viên
           </button>
 
-          {/* Nút mở / ẩn khu Quản lý lớp */}
+          {/* 2. Nút Quản lý lớp */}
           <button
-            onClick={() => setShowClassSection((s) => !s)}
+            onClick={() => toggleSection('class')}
             style={{
               padding: "12px 24px",
               borderRadius: 999,
@@ -141,20 +125,18 @@ function StaffDashboard() {
               cursor: "pointer",
               fontWeight: 600,
               fontSize: 15,
-              boxShadow: showClassSection
-                ? "0 10px 20px rgba(40, 167, 69, 0.18)"
-                : "0 4px 10px rgba(0,0,0,0.04)",
+              boxShadow: showClassSection ? "0 10px 20px rgba(40, 167, 69, 0.18)" : "0 4px 10px rgba(0,0,0,0.04)",
               background: showClassSection ? "linear-gradient(135deg,#28a745,#5cd67a)" : "#f2f3ff",
               color: showClassSection ? "#fff" : "#333",
               transition: "all 0.25s",
             }}
           >
-            Quản lý lớp
+            Quản lý lớp 
           </button>
 
-          {/* Nút mở / ẩn khu Quản lý khóa học */}
+          {/* 3. Nút Quản lý khóa học */}
           <button
-            onClick={() => setShowCourseSection((s) => !s)}
+            onClick={() => toggleSection('course')}
             style={{
               padding: "12px 24px",
               borderRadius: 999,
@@ -162,9 +144,7 @@ function StaffDashboard() {
               cursor: "pointer",
               fontWeight: 600,
               fontSize: 15,
-              boxShadow: showCourseSection
-                ? "0 10px 20px rgba(255, 159, 64, 0.18)"
-                : "0 4px 10px rgba(0,0,0,0.04)",
+              boxShadow: showCourseSection ? "0 10px 20px rgba(255, 159, 64, 0.18)" : "0 4px 10px rgba(0,0,0,0.04)",
               background: showCourseSection ? "linear-gradient(135deg,#ff9f40,#ffb84d)" : "#f2f3ff",
               color: showCourseSection ? "#fff" : "#333",
               transition: "all 0.25s",
@@ -173,9 +153,9 @@ function StaffDashboard() {
             Quản lý khóa học
           </button>
 
-          {/* Nút mở / ẩn khu Quản lý giảng viên */}
+          {/* 4. Nút Quản lý Giảng viên (MỚI) */}
           <button
-            onClick={() => setShowInstructorSection((s) => !s)}
+            onClick={() => toggleSection('instructor')}
             style={{
               padding: "12px 24px",
               borderRadius: 999,
@@ -183,181 +163,78 @@ function StaffDashboard() {
               cursor: "pointer",
               fontWeight: 600,
               fontSize: 15,
-              boxShadow: showInstructorSection
-                ? "0 10px 20px rgba(139, 92, 246, 0.18)"
-                : "0 4px 10px rgba(0,0,0,0.04)",
-              background: showInstructorSection ? "linear-gradient(135deg,#8b5cf6,#a78bfa)" : "#f2f3ff",
+              boxShadow: showInstructorSection ? "0 10px 20px rgba(234, 179, 8, 0.2)" : "0 4px 10px rgba(0,0,0,0.04)",
+              background: showInstructorSection ? "linear-gradient(135deg, #eab308, #ca8a04)" : "#f2f3ff",
               color: showInstructorSection ? "#fff" : "#333",
               transition: "all 0.25s",
             }}
           >
             Quản lý giảng viên
           </button>
+
         </div>
       </section>
 
-      {/* KHU QUẢN LÝ HỌC VIÊN */}
+      {/* --- SECTION 1: HỌC VIÊN --- */}
       {showStudentSection && (
         <section id="student-section" style={{ marginTop: 24, maxWidth: 1100 }}>
-          <div
-            style={{
-              borderRadius: 24,
-              backgroundColor: "#ffffff",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)",
-              padding: 28,
-              border: "1px solid #eef0ff",
-              marginBottom: 32,
-            }}
-          >
-            <h2
-              style={{
-                fontSize: 22,
-                fontWeight: 700,
-                marginBottom: 8,
-              }}
-            >
-              Quản lý học viên
-            </h2>
-            <p style={{ color: "#555", marginBottom: 16 }}>
-              Chức năng dành cho nhân viên trung tâm: tiếp nhận học viên đăng ký
-              mới, cấp tài khoản đăng nhập, tìm kiếm và cập nhật thông tin học viên,
-              theo dõi học viên đang học và các học viên đã hoàn thành khoá học.
-            </p>
+          <div style={{ borderRadius: 24, backgroundColor: "#ffffff", boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)", padding: 28, border: "1px solid #eef0ff", marginBottom: 32 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Quản lý học viên</h2>
+            
 
-            {/* Thông báo chung (thành công / lỗi) */}
             {globalMessage && (
-              <div
-                style={{
-                  marginBottom: 20,
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  backgroundColor: "#e6f4ff",
-                  borderLeft: "4px solid #1677ff",
-                  color: "#0050b3",
-                  fontSize: 14,
-                }}
-              >
+              <div style={{ marginBottom: 20, padding: "10px 14px", borderRadius: 10, backgroundColor: "#e6f4ff", borderLeft: "4px solid #1677ff", color: "#0050b3", fontSize: 14 }}>
                 {globalMessage}
               </div>
             )}
 
-            {/* Học viên đăng ký mới (status = NEW) */}
-            <AddStudentPanel
-              onGlobalMessage={setGlobalMessage}
-              onRefreshAll={handleRefreshAllStudents}
-              refreshToken={refreshToken}
-            />
-
-            {/* Học viên đang học & quá trình học hiện tại (status = ACTIVE) */}
-            <OngoingStudentsPanel
-              onGlobalMessage={setGlobalMessage}
-              onRefreshAll={handleRefreshAllStudents}
-              refreshToken={refreshToken}
-              showEditButton={true}
-            />
-
-            {/* Học viên đã học & kết quả quá trình học (status = COMPLETED) */}
-            <CompletedStudentsPanel
-              onGlobalMessage={setGlobalMessage}
-              onRefreshAll={handleRefreshAllStudents}
-              refreshToken={refreshToken}
-            />
+            <AddStudentPanel onGlobalMessage={setGlobalMessage} onRefreshAll={handleRefreshAllStudents} refreshToken={refreshToken} />
+            <OngoingStudentsPanel onGlobalMessage={setGlobalMessage} onRefreshAll={handleRefreshAllStudents} refreshToken={refreshToken} showEditButton={true} />
+            <CompletedStudentsPanel onGlobalMessage={setGlobalMessage} onRefreshAll={handleRefreshAllStudents} refreshToken={refreshToken} />
           </div>
         </section>
       )}
 
-      {/* KHU QUẢN LÝ LỚP */}
+      {/* --- SECTION 2: QUẢN LÝ LỚP --- */}
       {showClassSection && (
         <section id="class-section" style={{ marginTop: 24, maxWidth: 1100 }}>
-          <div
-            style={{
-              borderRadius: 24,
-              backgroundColor: "#ffffff",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)",
-              padding: 28,
-              border: "1px solid #eef0ff",
-              marginBottom: 32,
-            }}
-          >
-            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Quản lý lớp</h2>
-            <p style={{ color: "#555", marginBottom: 16 }}>
-              Tạo, sửa, xoá lớp và gán học viên vào lớp. Sử dụng chức năng này sau khi đã áp migrations vào database.
-            </p>
-
-            {/* Với STAFF, giữ tiêu đề là "Quản lý lớp" để tránh nhầm với khoá học */}
-            <ClassManagementPanel refreshToken={refreshToken} title="Quản lý lớp" />
+          <div style={{ borderRadius: 24, backgroundColor: "#ffffff", boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)", padding: 28, border: "1px solid #eef0ff", marginBottom: 32 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: '#28a745' }}>
+              Quản lý Lớp học
+            </h2>
+            
+            <ClassManagementPanel />
           </div>
         </section>
       )}
 
-      {/* KHU QUẢN LÝ KHÓA HỌC */}
+      {/* --- SECTION 3: KHÓA HỌC --- */}
       {showCourseSection && (
         <section id="course-section" style={{ marginTop: 24, maxWidth: 1100 }}>
-          <div
-            style={{
-              borderRadius: 24,
-              backgroundColor: "#ffffff",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)",
-              padding: 28,
-              border: "1px solid #fff5e6",
-              marginBottom: 32,
-            }}
-          >
+          <div style={{ borderRadius: 24, backgroundColor: "#ffffff", boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)", padding: 28, border: "1px solid #fff5e6", marginBottom: 32 }}>
             <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>📚 Quản lý khóa học</h2>
-            <p style={{ color: "#555", marginBottom: 16 }}>
-              Chức năng dành cho nhân viên trung tâm: tiếp nhận khóa học mới, cập nhật thông tin khóa học, 
-              tìm kiếm và quản lý các khóa học, theo dõi học viên trong từng khóa học.
-            </p>
-
+            
             <CourseManagementPanel refreshToken={refreshToken} />
           </div>
         </section>
       )}
 
-      {/* KHU QUẢN LÝ GIẢNG VIÊN */}
+      {/* --- SECTION 4: QUẢN LÝ GIẢNG VIÊN (MỚI) --- */}
       {showInstructorSection && (
         <section id="instructor-section" style={{ marginTop: 24, maxWidth: 1100 }}>
-          <div
-            style={{
-              borderRadius: 24,
-              backgroundColor: "#ffffff",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)",
-              padding: 28,
-              border: "1px solid #f3e8ff",
-              marginBottom: 32,
-            }}
-          >
-            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
-              👨‍🏫 Quản lý giảng viên
+          <div style={{ borderRadius: 24, backgroundColor: "#ffffff", boxShadow: "0 18px 40px rgba(15, 23, 42, 0.08)", padding: 28, border: "1px solid #fef9c3", marginBottom: 32 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: '#ca8a04' }}>
+              👨‍🏫  Quản lý giảng viên
             </h2>
-            <p style={{ color: "#555", marginBottom: 16 }}>
-              Chức năng dành cho nhân viên trung tâm: tiếp nhận giảng viên mới, cấp tài khoản đăng nhập,
-              tìm kiếm và cập nhật thông tin giảng viên, theo dõi giảng viên đang dạy và lịch sử giảng dạy.
-            </p>
-
-            {/* Giảng viên mới (NEW) */}
-            <AddInstructorPanel
-              onGlobalMessage={setGlobalMessage}
-              onRefreshAll={handleRefreshAllStudents}
-              refreshToken={refreshToken}
-            />
-
-            {/* Giảng viên đang dạy (ACTIVE) */}
-            <ActiveInstructorsPanel
-              onGlobalMessage={setGlobalMessage}
-              onRefreshAll={handleRefreshAllStudents}
-              refreshToken={refreshToken}
-            />
-
-            {/* Giảng viên không hoạt động (INACTIVE) */}
-            <InactiveInstructorsPanel
-              onGlobalMessage={setGlobalMessage}
-              onRefreshAll={handleRefreshAllStudents}
-              refreshToken={refreshToken}
-            />
+            
+            
+            {/* Component hiển thị danh sách GV */}
+            <InstructorManagementPanel />
+            
           </div>
         </section>
       )}
+
     </div>
   );
 }

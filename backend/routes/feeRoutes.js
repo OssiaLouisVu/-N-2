@@ -147,8 +147,43 @@ router.post('/invoices', async(req, res) => {
         res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
     }
 });
+// API xử lý Thanh toán (Cập nhật hóa đơn đã có)
+// routes/feeRoutes.js
 
-// ============================================
+// API Xử lý thanh toán hóa đơn
+// routes/feeRoutes.js
+
+// API Xử lý thanh toán hóa đơn
+// ĐẢM BẢO LÀ router.post VÀ CHỈ LÀ '/pay'
+router.post('/pay', async(req, res) => {
+    try {
+        const { invoice_id } = req.body;
+
+        if (!invoice_id) {
+            return res.status(400).json({ success: false, message: 'Thiếu mã hóa đơn' });
+        }
+
+        // Sử dụng pool.query thay vì db.query
+        const [result] = await pool.query(
+            "UPDATE invoices SET status = 'PAID', paid_at = NOW(), updated_at = NOW() WHERE id = ?", [invoice_id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy hóa đơn' });
+        }
+
+        // Cập nhật trạng thái học viên
+        await pool.query(
+            "UPDATE students SET payment_status = 'PAID' WHERE id = (SELECT student_id FROM invoices WHERE id = ?)", [invoice_id]
+        );
+
+        res.json({ success: true, message: 'Thanh toán thành công!' });
+    } catch (err) {
+        console.error('Lỗi tại POST /pay:', err);
+        // Trả về JSON lỗi để Frontend không bị lỗi DOCTYPE
+        res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
+    }
+});
 // 4. GET /api/fee/invoices/pending
 // Lấy danh sách hoá đơn PENDING (chưa thanh toán)
 // ============================================
@@ -192,103 +227,80 @@ router.get('/invoices/pending', async(req, res) => {
 // 5. PUT /api/fee/invoices/:id/payment
 // Xác nhận thanh toán (PENDING -> PAID)
 // ============================================
-router.put('/invoices/:id/payment', async(req, res) => {
+// Ví dụ API: Thêm học viên vào lớp
+router.post('/:classId/students', async(req, res) => {
+    const { classId } = req.params;
+    const { studentId } = req.body;
+
+    const conn = await pool.getConnection();
     try {
-        const { id } = req.params;
-        const { method, note } = req.body;
+        // 1. Logic thêm vào bảng lớp học (giữ nguyên logic cũ của bạn)
+        await conn.query(
+            `INSERT INTO class_students (class_id, student_id, status) VALUES (?, ?, 'ACTIVE')`, [classId, studentId]
+        );
 
-        if (!id) {
-            return res.status(400).json({
-                success: false,
-                message: 'Thiếu invoice ID'
-            });
-        }
+        // 2. LOGIC MỚI: Tự động chuyển trạng thái Student -> ACTIVE
+        await conn.query(
+            `UPDATE students SET status = 'ACTIVE' WHERE id = ?`, [studentId]
+        );
 
-        const conn = await pool.getConnection();
-
-        try {
-            // Lấy hoá đơn hiện tại
-            const [invoice] = await conn.query(
-                `SELECT * FROM invoices WHERE id = ?`, [id]
-            );
-
-            if (!invoice || invoice.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Hoá đơn không tồn tại'
-                });
-            }
-
-            const inv = invoice[0];
-
-            if (inv.status !== 'PENDING') {
-                return res.status(400).json({
-                    success: false,
-                    message: `Hoá đơn đã là ${inv.status}, không thể thanh toán lại`
-                });
-            }
-
-            // Cập nhật hoá đơn thành PAID
-            await conn.query(
-                `UPDATE invoices 
-         SET status = 'PAID', 
-             payment_method = ?, 
-             payment_note = ?,
-             paid_at = NOW(),
-             updated_at = NOW()
-         WHERE id = ?`, [method || 'cash', note || '', id]
-            );
-
-            // Cập nhật trạng thái học viên thành PAID
-            await conn.query(
-                `UPDATE students 
-         SET payment_status = 'PAID'
-         WHERE id = ?`, [inv.student_id]
-            );
-
-            res.json({
-                success: true,
-                message: 'Thanh toán thành công! Học viên chuyển sang PAID'
-            });
-        } finally {
-            conn.release();
-        }
+        res.json({ success: true, message: 'Đã xếp lớp và kích hoạt trạng thái ACTIVE cho học viên!' });
     } catch (err) {
-        console.error('Error in PUT /invoices/:id/payment:', err);
-        res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        conn.release();
     }
 });
-
 // ============================================
 // 6. GET /api/fee/invoices/paid
 // Lấy danh sách hoá đơn ĐÃ THANH TOÁN (PAID)
+// ============================================
+// ============================================
+// 6. GET /api/fee/invoices/paid (Đã sửa để chấp nhận tham số courseId)
+// ============================================
+// 6. GET /api/fee/invoices/paid
+// Lấy danh sách hoá đơn ĐÃ THANH TOÁN (PAID) - Có hỗ trợ lọc theo course_id
 // ============================================
 router.get('/invoices/paid', async(req, res) => {
     try {
         const conn = await pool.getConnection();
 
-        const [invoices] = await conn.query(
-            `SELECT 
-        i.id,
-        i.student_id,
-        i.course_id,
-        i.amount,
-        i.status,
-        i.payment_method AS method,
-        i.payment_note AS note,
-        s.full_name AS student_name,
-        s.phone,
-        s.email,
-        c.name AS course_name,
-        c.level,
-        i.created_at,
-        i.paid_at
-       FROM invoices i
-       LEFT JOIN students s ON i.student_id = s.id
-       LEFT JOIN courses c ON i.course_id = c.id
-       WHERE i.status = 'PAID'
-       ORDER BY i.paid_at DESC`
-        );
+        // ✅ Lấy tham số course_id từ query
+        const { course_id } = req.query;
+
+        let sql = `
+            SELECT 
+                i.id,
+                i.student_id,
+                i.course_id,
+                i.amount,
+                i.status,
+                i.payment_method AS method,
+                i.payment_note AS note,
+                s.full_name AS student_name,
+                s.phone,
+                s.email,
+                c.name AS course_name,
+                c.level,
+                i.created_at,
+                i.paid_at
+            FROM invoices i
+            LEFT JOIN students s ON i.student_id = s.id
+            LEFT JOIN courses c ON i.course_id = c.id
+            WHERE i.status = 'PAID'
+        `;
+
+        const params = [];
+
+        // ✅ Logic lọc: Nếu course_id được truyền vào, thêm điều kiện lọc
+        if (course_id) {
+            sql += ` AND i.course_id = ? `;
+            params.push(course_id);
+        }
+
+        sql += ` ORDER BY i.paid_at DESC`;
+
+        const [invoices] = await conn.query(sql, params);
 
         conn.release();
 
@@ -301,7 +313,6 @@ router.get('/invoices/paid', async(req, res) => {
         res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
     }
 });
-
 // ============================================
 // 7. GET /api/fee/invoices/all
 // Lấy TẤT CẢ hoá đơn (PENDING + PAID)
@@ -631,26 +642,26 @@ router.get('/bank-info', async(req, res) => {
 // Trả về tổng hợp báo cáo học phí: tổng tiền đã thu, số khoá học đã có hoá đơn PAID, số học viên đã thanh toán
 // Optional query params: from (ISO date), to (ISO date)
 // ============================================
-router.get('/report/summary', async (req, res) => {
-  try {
-    const conn = await pool.getConnection();
-    const { from, to } = req.query;
+router.get('/report/summary', async(req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        const { from, to } = req.query;
 
-    // Build date filters
-    const conditions = ["i.status = 'PAID'"];
-    const params = [];
-    if (from) {
-      conditions.push('i.paid_at >= ?');
-      params.push(from);
-    }
-    if (to) {
-      conditions.push('i.paid_at <= ?');
-      params.push(to);
-    }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+        // Build date filters
+        const conditions = ["i.status = 'PAID'"];
+        const params = [];
+        if (from) {
+            conditions.push('i.paid_at >= ?');
+            params.push(from);
+        }
+        if (to) {
+            conditions.push('i.paid_at <= ?');
+            params.push(to);
+        }
+        const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
-    // Use subqueries to gather stats in one roundtrip
-    const sql = `
+        // Use subqueries to gather stats in one roundtrip
+        const sql = `
       SELECT
         IFNULL(SUM(i.amount), 0) AS total_collected,
         IFNULL(COUNT(DISTINCT i.course_id), 0) AS courses_registered,
@@ -659,16 +670,79 @@ router.get('/report/summary', async (req, res) => {
       ${where}
     `;
 
-    const [rows] = await conn.query(sql, params);
-    conn.release();
+        const [rows] = await conn.query(sql, params);
+        conn.release();
 
-    const result = rows && rows[0] ? rows[0] : { total_collected: 0, courses_registered: 0, students_registered: 0 };
+        const result = rows && rows[0] ? rows[0] : { total_collected: 0, courses_registered: 0, students_registered: 0 };
 
-    res.json({ success: true, report: result });
-  } catch (err) {
-    console.error('Error in GET /report/summary:', err);
-    res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
-  }
+        res.json({ success: true, report: result });
+    } catch (err) {
+        console.error('Error in GET /report/summary:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
+    }
 });
+// backend/routes/feeRoutes.js
+
+
+// ✅ (1) GET /api/fee/paid-courses
+// Danh sách khóa học có ít nhất 1 hóa đơn PAID
+router.get("/paid-courses", async(req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+
+        const [rows] = await conn.query(`
+      SELECT DISTINCT c.id, c.name, c.level
+      FROM invoices i
+      JOIN courses c ON c.id = i.course_id
+      WHERE i.status = 'PAID'
+      ORDER BY c.name ASC
+    `);
+
+        res.json({ success: true, courses: rows || [] });
+    } catch (err) {
+        console.error("GET /api/fee/paid-courses error:", err);
+        res.status(500).json({ success: false, message: "DB error" });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+// ✅ (2) GET /api/fee/paid-students?courseId=...
+// Danh sách học viên đã PAID cho khóa đó và chưa ở lớp ACTIVE (tuỳ logic)
+router.get("/paid-students", async(req, res) => {
+    let conn;
+    try {
+        const courseId = Number(req.query.courseId);
+        if (!courseId) {
+            return res.status(400).json({ success: false, message: "courseId is required" });
+        }
+
+        conn = await pool.getConnection();
+
+        const [rows] = await conn.query(
+            `
+      SELECT DISTINCT s.id, s.full_name, s.phone, s.email
+      FROM invoices i
+      JOIN students s ON s.id = i.student_id
+      LEFT JOIN class_students cs 
+        ON cs.student_id = s.id AND cs.status = 'ACTIVE'
+      WHERE i.course_id = ?
+        AND i.status = 'PAID'
+        AND s.payment_status = 'PAID'
+        AND cs.id IS NULL
+      ORDER BY s.full_name ASC
+      `, [courseId]
+        );
+
+        res.json({ success: true, students: rows || [] });
+    } catch (err) {
+        console.error("GET /api/fee/paid-students error:", err);
+        res.status(500).json({ success: false, message: "DB error" });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
 
 module.exports = router;

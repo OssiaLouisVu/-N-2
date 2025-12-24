@@ -45,9 +45,15 @@ export default function CompletedStudentsPanel({
     await loadStudents(filterStatus);
   };
 
-  const handleViewDetail = (st) => {
-    setSelectedStudent(st);
-  };
+ const handleViewDetail = (st) => {
+  // Nếu đang mở đúng học viên này => bấm lần nữa sẽ đóng
+  if (selectedStudent && selectedStudent.id === st.id) {
+    setSelectedStudent(null);      // đóng
+  } else {
+    setSelectedStudent(st);        // mở / chuyển sang học viên khác
+  }
+};
+
 
   return (
     <section
@@ -74,12 +80,7 @@ export default function CompletedStudentsPanel({
         </span>
         Học viên đã học & kết quả quá trình học
       </h3>
-      <p style={{ fontSize: 13, color: "#555", marginBottom: 12 }}>
-        Use case: <b>Học viên đã học</b> – Nhân viên có thể tìm kiếm các học viên đã
-        hoàn thành khoá học tại trung tâm (<b>status = COMPLETED</b>), xem thông
-        tin cơ bản và mở ra phần <b>Khoá học đã học, Kết quả & quá trình học tập</b>.
-      </p>
-
+      
       {localMessage && (
         <div
           style={{

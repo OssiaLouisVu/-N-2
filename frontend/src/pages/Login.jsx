@@ -276,16 +276,7 @@ function Login() {
           </button>
         </form>
 
-        <div style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.6 }}>
-          <b>Tài khoản demo (ví dụ):</b>
-          <ul style={{ paddingLeft: 18, marginTop: 6 }}>
-            <li>Học viên: student1 / pass12345 (role: STUDENT)</li>
-            <li>Giáo viên: teacher1 / pass1234 (role: TEACHER)</li>
-            <li>Nhân viên: staff1 / pass1234 (role: STAFF)</li>
-            <li>Kế toán: accountant1 / pass1234 (role: ACCOUNTANT)</li>
-            <li>Quản lý: manager1 / pass1234 (role: MANAGER)</li>
-          </ul>
-        </div>
+        
       </div>
     </div>
   );

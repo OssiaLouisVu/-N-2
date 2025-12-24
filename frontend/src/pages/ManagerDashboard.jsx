@@ -508,7 +508,9 @@ export default function ManagerDashboard() {
     {tab==='list' && (
       <div className="mb-6">
         <div className="bg-indigo-50 border-l-4 border-indigo-400 rounded p-3 text-gray-700 text-sm">
-          <b>Quy trình:</b> Đăng nhập → Quản lý nhân viên (thêm/sửa/xoá) → Chấm công → Gửi thông báo (nếu cần)
+
+          <b>Hello:</b> Chúc bạn một ngày vui vẻ
+
         </div>
       </div>
     )}
